@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Traqueur de séance — Salle</title>
+<meta name="theme-color" content="#2E5AAC" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Séance" />
+<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="icon" href="./icon-192.png" />
+<link rel="apple-touch-icon" href="./icon-192.png" />
+<style>
+  :root{
+    --bg:#EEF2F6; --surface:#FFFFFF; --line:#D6DEE7; --line-strong:#B8C4D0;
+    --ink:#16202B; --muted:#5C6B7A;
+    --accent:#2E5AAC; --accent-ink:#FFFFFF;
+    --good:#1C7A50; --good-bg:#E3F1EA;
+    --amber:#B4611A; --amber-bg:#F7EADB;
+    --danger:#B23A3A; --danger-bg:#F6E1E1;
+    --radius:12px;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --tap:44px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0}
+  body{
+    font-family:var(--sans); color:var(--ink); background:var(--bg);
+    font-size:16px; line-height:1.4; padding-bottom:96px;
+    padding-top:env(safe-area-inset-top);
+  }
+  .wrap{max-width:620px;margin:0 auto;padding:12px 12px 0}
+
+  .topbar{position:sticky;top:0;z-index:20;background:var(--bg);padding-top:6px}
+  .topbar h1{font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;font-weight:700}
+  .sessionbar{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap}
+  select,input,textarea{font-family:inherit;font-size:16px;color:var(--ink)}
+  .sel{flex:1 1 auto;min-width:0;height:var(--tap);border:1px solid var(--line-strong);border-radius:10px;background:var(--surface);padding:0 10px}
+  .btn{min-height:var(--tap);border:1px solid var(--line-strong);background:var(--surface);border-radius:10px;padding:0 14px;font-weight:600;color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+  .btn:active{transform:translateY(1px)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .btn.ghost{background:transparent}
+  .btn.icon{padding:0 12px;font-size:18px;line-height:1}
+  .meta{display:flex;gap:8px;align-items:center;margin:10px 0 6px;flex-wrap:wrap}
+  .meta label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+  .meta input,.meta select{height:38px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);padding:0 8px}
+  .meta .date{width:150px}
+
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:12px 0}
+  .panel h2{margin:0 0 6px;font-size:16px}
+  .panel p{margin:0 0 10px;color:var(--muted);font-size:14px}
+  textarea.paste{width:100%;min-height:120px;border:1px solid var(--line-strong);border-radius:10px;padding:10px;font-family:var(--mono);font-size:13px;resize:vertical}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .msg{font-size:13px;margin-top:8px}
+  .msg.err{color:var(--danger)} .msg.ok{color:var(--good)}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);margin:10px 0;overflow:hidden}
+  .card.done{border-color:var(--good)}
+  .card-head{display:flex;align-items:center;gap:8px;padding:12px 14px;cursor:pointer}
+  .card-head .nm{font-weight:700;flex:1 1 auto;line-height:1.25}
+  .badge{font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap}
+  .badge.warn{background:var(--danger-bg);color:var(--danger)}
+  .badge.cuff{background:var(--good-bg);color:var(--good)}
+  .badge.check{background:var(--good);color:#fff}
+  .badge.alt-b{background:#E1EAF7;color:var(--accent)}
+  .collapsed-sum{font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chev{color:var(--muted);font-size:13px}
+
+  .card-body{padding:0 14px 14px;border-top:1px dashed var(--line)}
+  .prescrip{font-family:var(--mono);font-size:13px;background:#F3F6F9;border-radius:8px;padding:8px 10px;margin:12px 0;color:var(--ink)}
+  .prescrip .k{color:var(--muted)}
+  .setup{font-size:13px;color:var(--muted);margin:-4px 0 12px}
+  .setup b{color:var(--ink);font-weight:600}
+  .safety{font-size:12.5px;color:var(--danger);background:var(--danger-bg);border-radius:8px;padding:6px 9px;margin:-2px 0 12px}
+
+  .eximg{margin:0 0 12px;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:60px}
+  .eximg img{max-width:100%;max-height:230px;object-fit:contain;display:block}
+  .eximg-none{font-size:12.5px;color:var(--muted);padding:18px;font-style:italic;text-align:center}
+
+  .alt{margin:0 0 12px;border:1px dashed var(--line-strong);border-radius:10px;padding:9px 11px;background:#F7FAFD}
+  .alt .lead{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:3px}
+  .alt .an{font-weight:700}
+  .alt .det{font-size:13px;color:var(--muted);margin-top:3px}
+  .alt .det b{color:var(--ink);font-weight:600}
+  .alt .swap{margin-top:9px;min-height:38px;width:100%;border:1px solid var(--accent);background:var(--surface);color:var(--accent);border-radius:9px;font-weight:600;cursor:pointer}
+  .alt .swap.on{background:var(--accent);color:#fff}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:600}
+  .stepper{display:flex;align-items:stretch;border:1px solid var(--line-strong);border-radius:10px;overflow:hidden;background:var(--surface)}
+  .stepper button{width:var(--tap);min-height:var(--tap);border:0;background:#F2F5F8;font-size:20px;color:var(--ink);cursor:pointer;flex:0 0 auto}
+  .stepper button:active{background:#E5EBF1}
+  .stepper input{flex:1 1 auto;min-width:0;border:0;text-align:center;font-family:var(--mono);font-weight:700;font-size:17px;background:transparent}
+  .txt{width:100%;height:var(--tap);border:1px solid var(--line-strong);border-radius:10px;padding:0 10px;font-family:var(--mono);background:var(--surface)}
+  .obs{width:100%;min-height:46px;border:1px solid var(--line-strong);border-radius:10px;padding:8px 10px;background:var(--surface);resize:vertical;font-size:15px}
+  .paired{display:flex;gap:6px}
+  .paired button{flex:1;min-height:var(--tap);border:1px solid var(--line-strong);border-radius:10px;background:var(--surface);font-weight:700;font-family:var(--mono);cursor:pointer}
+  .paired button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+  .hero{margin:14px 0 4px}
+  .hero .lbl{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+  .hero .lbl .t{font-weight:700}
+  .hero .lbl .cible{font-size:12px;color:var(--muted);font-family:var(--mono)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{min-width:var(--tap);min-height:var(--tap);border:1px solid var(--line-strong);border-radius:10px;background:var(--surface);font-family:var(--mono);font-weight:700;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:0 0 auto;padding:0 6px}
+  .chip.on{border-width:2px}
+  .chips.rir .chip.on.z-good{background:var(--good);color:#fff;border-color:var(--good)}
+  .chips.rir .chip.on.z-amber{background:var(--amber);color:#fff;border-color:var(--amber)}
+  .chips.rir .chip.on.z-danger{background:var(--danger);color:#fff;border-color:var(--danger)}
+  .chips .chip.on.plain{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .hint{font-size:12.5px;margin-top:6px;min-height:16px;font-weight:600}
+  .hint.good{color:var(--good)} .hint.amber{color:var(--amber)} .hint.danger{color:var(--danger)}
+
+  .sub{margin-top:14px}
+  .sub h4{margin:0 0 6px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+
+  .footer{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line-strong);padding:10px 12px;z-index:30;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+  .footer .inner{max-width:620px;margin:0 auto;display:flex;align-items:center;gap:12px}
+  .progress{flex:1 1 auto}
+  .progress .bar{height:8px;background:#E4EAF0;border-radius:99px;overflow:hidden}
+  .progress .bar>span{display:block;height:100%;background:var(--good);width:0%}
+  .progress .lab{font-size:12px;color:var(--muted);margin-top:4px}
+  .footer .btn.primary{min-width:130px}
+
+  .modal{position:fixed;inset:0;background:rgba(15,25,35,.5);z-index:50;display:none;align-items:flex-end;justify-content:center}
+  .modal.open{display:flex}
+  .sheet{background:var(--surface);width:100%;max-width:620px;border-radius:16px 16px 0 0;padding:16px;max-height:88vh;overflow:auto}
+  .sheet h3{margin:0 0 4px}
+  .sheet p{color:var(--muted);font-size:13.5px;margin:0 0 10px}
+  .sheet textarea{width:100%;min-height:180px;font-family:var(--mono);font-size:12.5px;border:1px solid var(--line-strong);border-radius:10px;padding:10px}
+  .sheet .actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .sheet ol{margin:0 0 4px;padding-left:20px;font-size:14px}
+  .sheet ol li{margin:5px 0}
+  .save-dot{font-size:12px;color:var(--muted);margin-left:auto}
+  .banner{background:var(--danger-bg);color:var(--danger);font-size:13px;padding:8px 12px;border-radius:8px;margin:10px 0}
+  .hidden{display:none}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>Traqueur de séance · salle</h1>
+    <div class="sessionbar">
+      <select class="sel" id="sessionSelect" aria-label="Choisir une séance"></select>
+      <button class="btn icon" id="btnImport" title="Importer des séances">＋</button>
+      <button class="btn icon ghost" id="btnMenu" title="Options">⋯</button>
+    </div>
+    <div class="meta" id="metaBar"></div>
+  </div>
+
+  <div id="storeBanner" class="banner hidden"></div>
+
+  <div id="app"></div>
+</div>
+
+<div class="footer">
+  <div class="inner">
+    <div class="progress">
+      <div class="bar"><span id="progFill"></span></div>
+      <div class="lab" id="progLab">—</div>
+    </div>
+    <button class="btn primary" id="btnExport">Exporter</button>
+  </div>
+</div>
+
+<!-- Import modal -->
+<div class="modal" id="importModal">
+  <div class="sheet">
+    <h3>Importer des séances</h3>
+    <p>Colle le <b>bloc JSON</b> que Claude te donne en MODE SÉANCES (Output 3 f). Il peut contenir <b>plusieurs séances</b> d'un coup — elles seront toutes ajoutées.</p>
+    <textarea id="importText" placeholder='{ "sessions": [ { "session": "Séance 1", "exercises": [ ... ] }, ... ] }'></textarea>
+    <div class="msg" id="importMsg"></div>
+    <div class="actions">
+      <button class="btn primary" id="btnDoImport">Ajouter</button>
+      <button class="btn ghost" id="btnLoadExample">Charger un exemple</button>
+      <button class="btn ghost" id="btnCloseImport">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Export modal -->
+<div class="modal" id="exportModal">
+  <div class="sheet">
+    <h3>Coller dans l'onglet Training</h3>
+    <p>Lignes de la séance courante, séparées par des tabulations, dans l'ordre exact des colonnes de <b>plan.xlsx</b>. Copie, puis colle sous la dernière ligne du tableau Training.</p>
+    <textarea id="exportText" readonly></textarea>
+    <div class="msg" id="exportMsg"></div>
+    <div class="actions">
+      <button class="btn primary" id="btnCopy">Copier</button>
+      <button class="btn ghost" id="btnCloseExport">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Menu modal -->
+<div class="modal" id="menuModal">
+  <div class="sheet">
+    <h3>Options</h3>
+    <div class="actions" style="flex-direction:column;align-items:stretch">
+      <button class="btn ghost" id="btnInstall">Installer sur l'écran d'accueil</button>
+      <button class="btn ghost" id="btnBackup">Sauvegarder tout (fichier .json)</button>
+      <button class="btn ghost" id="btnRestore">Restaurer depuis un fichier</button>
+      <input type="file" id="restoreInput" accept="application/json,.json" class="hidden" />
+      <hr style="border:0;border-top:1px solid var(--line);margin:6px 0" />
+      <button class="btn ghost" id="btnDup">Dupliquer cette séance (nouvelle date)</button>
+      <button class="btn ghost" id="btnDelete" style="color:var(--danger)">Supprimer cette séance</button>
+      <button class="btn ghost" id="btnResetAll" style="color:var(--danger)">Tout effacer</button>
+      <button class="btn ghost" id="btnCloseMenu">Fermer</button>
+    </div>
+    <div class="save-dot" id="saveDot" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- Install modal -->
+<div class="modal" id="installModal">
+  <div class="sheet">
+    <h3>Installer sur l'écran d'accueil</h3>
+    <p>Pour l'installation en vraie appli (icône, plein écran, hors-ligne complet <b>images comprises</b>), les fichiers doivent être servis par une adresse <b>https</b> (voir le README : GitHub Pages). Ouverte en local, l'appli fonctionne aussi, mais sans installation ni cache d'images.</p>
+    <p style="color:var(--ink);font-weight:600;margin:8px 0 2px">Android (Chrome) — ton Samsung</p>
+    <ol>
+      <li>Ouvre l'adresse https de l'appli dans <b>Chrome</b>.</li>
+      <li>Menu <b>⋮</b> en haut à droite → <b>Installer l'application</b> (ou <b>Ajouter à l'écran d'accueil</b>).</li>
+      <li>Au premier lancement en ligne, les images se mettent en cache. Ensuite, tout marche hors-ligne.</li>
+    </ol>
+    <p style="color:var(--ink);font-weight:600;margin:8px 0 2px">iPhone (Safari)</p>
+    <ol>
+      <li>Bouton <b>Partager</b> → <b>Sur l'écran d'accueil</b> → <b>Ajouter</b>.</li>
+    </ol>
+    <p>Tes saisies restent sur le téléphone. Pense à <b>Sauvegarder tout</b> régulièrement : c'est ta seule copie de secours si tu changes de téléphone ou vides le navigateur.</p>
+    <div class="actions">
+      <button class="btn ghost" id="btnCloseInstall">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const LS_KEY = "traqueur-seance-v2";
+const PAIN_LOCS = ["","épaule droite","épaule gauche","haut du dos","bas du dos","cou","genou droit","genou gauche","mollet droit","mollet gauche","bras droit","bras gauche"];
+/* Ordre EXACT des colonnes de l'onglet Training de plan.xlsx */
+const TRAINING_COLS = ["Date","Exercice/Circuit","Série","Reps","DB (kg)","Paired","Repos Reps (seconds)","RIR","RPE","Pain (0-10)","Pain location","Observations","Type"];
+const IMG_BASE = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/";
+
+/* === Table d'illustrations curée à la main (mouvement identique) — domaine public (free-exercise-db) === */
+const IMG_MAP = {
+  "Back Extension": "Hyperextensions_Back_Extensions/0.jpg",
+  "Band Biceps Curl": "Dumbbell_Bicep_Curl/0.jpg",
+  "Band External Rotation": "External_Rotation_with_Band/0.jpg",
+  "Band Face Pull": "Face_Pull/0.jpg",
+  "Band Pull-Apart": "Band_Pull_Apart/0.jpg",
+  "Band Pulldown": "Wide-Grip_Lat_Pulldown/0.jpg",
+  "Band Row": "Seated_Cable_Rows/0.jpg",
+  "Barbell Romanian Deadlift": "Romanian_Deadlift/0.jpg",
+  "Bench Dips": "Bench_Dips/0.jpg",
+  "Bent-Over Dumbbell Row": "Bent_Over_Two-Dumbbell_Row/0.jpg",
+  "Box Goblet Squat": "Goblet_Squat/0.jpg",
+  "Box Squat": "Box_Squat/0.jpg",
+  "Bulgarian Split Squat": "Split_Squat_with_Dumbbells/0.jpg",
+  "Cable Face Pull": "Face_Pull/0.jpg",
+  "Cable Hammer Curl": "Cable_Hammer_Curls_-_Rope_Attachment/0.jpg",
+  "Cable Lateral Raise": "Cable_Seated_Lateral_Raise/0.jpg",
+  "Cable Triceps Pushdown": "Triceps_Pushdown/0.jpg",
+  "Chest-Supported Row": null,
+  "Close-Grip Dumbbell Bench Press": "Close-Grip_Dumbbell_Press/0.jpg",
+  "Crunch": "Crunches/0.jpg",
+  "Dead Bug": "Dead_Bug/0.jpg",
+  "Dumbbell Bench Press": "Dumbbell_Bench_Press/0.jpg",
+  "Dumbbell Biceps Curl": "Dumbbell_Bicep_Curl/0.jpg",
+  "Dumbbell Floor Press": "Dumbbell_Floor_Press/0.jpg",
+  "Dumbbell Front Raise": "Front_Dumbbell_Raise/0.jpg",
+  "Dumbbell Hammer Curl": "Hammer_Curls/0.jpg",
+  "Dumbbell Hip Hinge": "Good_Morning/0.jpg",
+  "Dumbbell Hip Thrust (Floor)": "Butt_Lift_Bridge/0.jpg",
+  "Dumbbell Lateral Raise": "Side_Lateral_Raise/0.jpg",
+  "Dumbbell Pullover": "Bent-Arm_Dumbbell_Pullover/0.jpg",
+  "Dumbbell Reverse Fly": "Reverse_Flyes/0.jpg",
+  "Dumbbell Swing": "Vertical_Swing/0.jpg",
+  "Dumbbell Triceps Kickback": "Tricep_Dumbbell_Kickback/0.jpg",
+  "Forearm Side Plank": "Side_Bridge/0.jpg",
+  "Goblet Squat": "Goblet_Squat/0.jpg",
+  "Hack Squat": "Hack_Squat/0.jpg",
+  "Incline Dumbbell Curl (Floor)": "Incline_Dumbbell_Curl/0.jpg",
+  "Incline Dumbbell Press": "Incline_Dumbbell_Press/0.jpg",
+  "Incline Dumbbell Press (Neutral Grip)": "Incline_Dumbbell_Press/0.jpg",
+  "Knee Side Plank": "Side_Bridge/0.jpg",
+  "Lat Pulldown": "Wide-Grip_Lat_Pulldown/0.jpg",
+  "Leg Press": "Leg_Press/0.jpg",
+  "Machine Chest Press": "Leverage_Chest_Press/0.jpg",
+  "Machine Shoulder Press": "Machine_Shoulder_Military_Press/0.jpg",
+  "Neutral-Grip Dumbbell Floor Press": "Dumbbell_Floor_Press/0.jpg",
+  "One-Arm Dumbbell Row": "One-Arm_Dumbbell_Row/0.jpg",
+  "Overhead Dumbbell Triceps Extension": "Standing_Dumbbell_Triceps_Extension/0.jpg",
+  "Paused Goblet Squat": "Goblet_Squat/0.jpg",
+  "Pike Push-Up": null,
+  "Plank": "Plank/0.jpg",
+  "Prone Y-T-W Raise": null,
+  "Push-Up": "Pushups/0.jpg",
+  "Reverse Lunge": "Dumbbell_Rear_Lunge/0.jpg",
+  "Reverse Pec Deck": "Reverse_Machine_Flyes/0.jpg",
+  "Romanian Deadlift": "Romanian_Deadlift/0.jpg",
+  "Seated Cable Row": "Seated_Cable_Rows/0.jpg",
+  "Seated Dumbbell Curl": "Seated_Dumbbell_Curl/0.jpg",
+  "Seated Dumbbell Overhead Press": "Seated_Dumbbell_Press/0.jpg",
+  "Seated Dumbbell Overhead Press (Floor)": "Seated_Dumbbell_Press/0.jpg",
+  "Seated Dumbbell Overhead Press (Neutral Grip)": "Seated_Dumbbell_Press/0.jpg",
+  "Seated Leg Curl": "Seated_Leg_Curl/0.jpg",
+  "Side Plank": "Side_Bridge/0.jpg",
+  "Standing Calf Raise": "Standing_Dumbbell_Calf_Raise/0.jpg",
+  "Standing Dumbbell Overhead Press": "Standing_Dumbbell_Press/0.jpg",
+  "Static Split Squat": "Split_Squats/0.jpg",
+  "Step-Up": "Dumbbell_Step_Ups/0.jpg",
+  "Sumo Squat": "Plie_Dumbbell_Squat/0.jpg"
+};
+
+let state = { sessions: [], activeId: null };
+let storeOK = true;
+let saveTimer = null;
+
+/* ---------- Service Worker (installation + hors-ligne, seulement en http/https) ---------- */
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.protocol === "http:")) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(()=>{ /* pas bloquant */ });
+  });
+}
+
+/* ---------- storage (localStorage, sur l'appareil) ---------- */
+function storageAvailable(){
+  try{ const k="__t"; localStorage.setItem(k,"1"); localStorage.removeItem(k); return true; }
+  catch(e){ return false; }
+}
+function loadState(){
+  try{ const raw=localStorage.getItem(LS_KEY); if(raw) state=JSON.parse(raw); }
+  catch(e){/* première utilisation */}
+}
+function scheduleSave(){
+  clearTimeout(saveTimer);
+  setDot("Enregistrement…");
+  saveTimer=setTimeout(doSave,300);
+}
+function doSave(){
+  if(!storeOK){ setDot("Non enregistré"); return; }
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); setDot("Enregistré ✓"); }
+  catch(e){ storeOK=false; showBanner(); setDot("Non enregistré"); }
+}
+function setDot(t){ const d=document.getElementById("saveDot"); if(d) d.textContent=t; }
+function showBanner(){
+  const b=document.getElementById("storeBanner");
+  b.textContent="Sauvegarde locale indisponible ici. Ouvre ce fichier dans Chrome ou Safari (pas dans une prévisualisation) pour que tes saisies tiennent.";
+  b.classList.remove("hidden");
+}
+
+/* ---------- helpers ---------- */
+function uid(){ return "s"+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function today(){ const d=new Date(); const p=n=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
+function activeSession(){ return state.sessions.find(s=>s.id===state.activeId) || null; }
+function imgUrlFor(name){ const p=IMG_MAP[name]; return p ? IMG_BASE+p : null; }
+function currentName(ex){ return (ex.usedAlt && ex.alt && ex.alt.name) ? ex.alt.name : ex.name; }
+
+function normalizeAlt(a){
+  if(!a || !a.name) return null;
+  return { name:String(a.name).trim(), setup:(a.setup||"").trim(), note:(a.note||"").trim() };
+}
+function normalizeExercise(x){
+  return {
+    name:(x.name||"").trim(),
+    plannedSets:(x.sets!=null?String(x.sets):""),
+    plannedReps:(x.reps!=null?String(x.reps):""),
+    plannedCharge:(x.charge!=null?String(x.charge):""),
+    setup:(x.setup||"").trim(),
+    divers:(x.divers||"").trim(),
+    rest:(x.rest!=null?String(x.rest):""),
+    rirTarget:(x.rirTarget!=null?String(x.rirTarget):""),
+    plannedPaired:(x.paired!=null?Number(x.paired):1)||1,
+    warn:!!x.warn, cuff:!!x.cuff,
+    alt:normalizeAlt(x.alt),
+    usedAlt:false,
+    serie:(x.sets!=null?String(x.sets):""),
+    reps:(x.reps!=null?String(x.reps):""),
+    charge:(x.charge!=null?String(x.charge):""),
+    paired:(x.paired!=null?Number(x.paired):1)||1,
+    rir:"", rpe:"", pain:"", painLoc:"", obs:""
+  };
+}
+function buildSession(obj){
+  if(!obj || !Array.isArray(obj.exercises) || obj.exercises.length===0)
+    throw new Error("Chaque séance doit avoir une clé \"exercises\" avec au moins un exercice.");
+  return {
+    id:uid(),
+    title:(obj.session||obj.title||"Séance").toString().trim(),
+    date:(obj.date||today()).toString().trim(),
+    type:(obj.type||"salle").toString().trim(),
+    exercises:obj.exercises.map(normalizeExercise)
+  };
+}
+/* Accepte soit { sessions:[...] } (nouveau), soit une séance unique { exercises:[...] } (rétrocompat) */
+function buildSessions(obj){
+  if(obj && Array.isArray(obj.sessions)){
+    if(obj.sessions.length===0) throw new Error("La clé \"sessions\" est vide.");
+    return obj.sessions.map(buildSession);
+  }
+  return [buildSession(obj)];
+}
+
+/* ---------- RIR logic ---------- */
+function rirZone(v, cuff){
+  if(v===""||v===null) return {cls:"", hint:"", z:"plain"};
+  v=Number(v);
+  if(cuff){
+    if(v>=3 && v<=4) return {cls:"good", hint:"coiffe : dans la cible (3–4, jamais à l'échec)", z:"z-good"};
+    if(v<3) return {cls:"amber", hint:"coiffe : trop proche de l'échec — allège", z:"z-amber"};
+    return {cls:"good", hint:"coiffe : ok, charge quasi nulle", z:"z-good"};
+  }
+  if(v<=3) return {cls:"good", hint:"série stimulante", z:"z-good"};
+  if(v<=5) return {cls:"amber", hint:"sous-stimulation — monte la charge", z:"z-amber"};
+  return {cls:"danger", hint:"déficit de charge — durcis la variante ou charge", z:"z-danger"};
+}
+
+/* ---------- render ---------- */
+const app = document.getElementById("app");
+
+function render(){
+  renderSessionSelect();
+  renderMeta();
+  const s = activeSession();
+  app.innerHTML = "";
+  if(!s){ renderEmpty(); updateProgress(); return; }
+  s.exercises.forEach((ex,i)=> app.appendChild(buildCard(ex,i)) );
+  updateProgress();
+}
+
+function renderSessionSelect(){
+  const sel = document.getElementById("sessionSelect");
+  if(state.sessions.length===0){ sel.innerHTML='<option>Aucune séance</option>'; sel.disabled=true; return; }
+  sel.disabled=false;
+  sel.innerHTML = state.sessions.map(s=>
+    `<option value="${s.id}" ${s.id===state.activeId?"selected":""}>${escapeHtml(s.title)} · ${s.date}</option>`
+  ).join("");
+}
+
+function renderMeta(){
+  const bar = document.getElementById("metaBar");
+  const s = activeSession();
+  if(!s){ bar.innerHTML=""; return; }
+  bar.innerHTML = `
+    <label>Date
+      <input type="date" class="date" id="mDate" value="${s.date}">
+    </label>
+    <label>Type
+      <select id="mType">
+        ${["salle","maison","poids du corps"].map(t=>`<option ${t===s.type?"selected":""}>${t}</option>`).join("")}
+      </select>
+    </label>`;
+  document.getElementById("mDate").addEventListener("change",e=>{ s.date=e.target.value; scheduleSave(); renderSessionSelect(); });
+  document.getElementById("mType").addEventListener("change",e=>{ s.type=e.target.value; scheduleSave(); });
+}
+
+function renderEmpty(){
+  const d=document.createElement("div");
+  d.className="panel";
+  d.innerHTML=`<h2>Aucune séance chargée</h2>
+    <p>Importe le bloc JSON que Claude te donne (une ou plusieurs séances), ou charge un exemple pour voir comment ça marche.</p>
+    <div class="row">
+      <button class="btn primary" id="emptyImport">Importer des séances</button>
+      <button class="btn ghost" id="emptyExample">Charger un exemple</button>
+    </div>`;
+  app.appendChild(d);
+  document.getElementById("emptyImport").onclick=openImport;
+  document.getElementById("emptyExample").onclick=loadExample;
+}
+
+/* ---------- image d'un exercice ---------- */
+function buildImage(ex){
+  const wrap=document.createElement("div"); wrap.className="eximg";
+  const name=currentName(ex);
+  const url=imgUrlFor(name);
+  if(url){
+    const img=document.createElement("img");
+    img.loading="lazy"; img.decoding="async"; img.alt=name; img.src=url;
+    img.onerror=()=>{ wrap.innerHTML='<div class="eximg-none">illustration indisponible (hors-ligne&nbsp;? relance en ligne une fois)</div>'; };
+    wrap.appendChild(img);
+  }else{
+    wrap.innerHTML='<div class="eximg-none">illustration indisponible</div>';
+  }
+  return wrap;
+}
+
+function buildCard(ex, idx){
+  const card=document.createElement("div");
+  card.className="card"+(ex.rir!==""?" done":"");
+
+  const head=document.createElement("div");
+  head.className="card-head";
+  head.innerHTML=`<span class="chev">▾</span><span class="nm"></span>`;
+  const nmEl=head.querySelector(".nm");
+  const badgeHost=document.createElement("span"); badgeHost.style.display="contents"; head.appendChild(badgeHost);
+  const sum=document.createElement("span");
+  sum.className="collapsed-sum hidden";
+  head.appendChild(sum);
+  card.appendChild(head);
+
+  function paintHeadName(){
+    nmEl.textContent = currentName(ex) || "(sans nom)";
+    badgeHost.innerHTML="";
+    if(ex.usedAlt) badgeHost.insertAdjacentHTML("beforeend",'<span class="badge alt-b">alternative</span>');
+    if(ex.warn) badgeHost.insertAdjacentHTML("beforeend",'<span class="badge warn">⚠ sensible</span>');
+    if(ex.cuff) badgeHost.insertAdjacentHTML("beforeend",'<span class="badge cuff">coiffe</span>');
+    if(ex.rir!=="") badgeHost.insertAdjacentHTML("beforeend",'<span class="badge check">✓</span>');
+  }
+  paintHeadName();
+
+  const body=document.createElement("div");
+  body.className="card-body";
+  card.appendChild(body);
+
+  const presc=document.createElement("div");
+  presc.className="prescrip";
+  presc.innerHTML=`<span class="k">prescrit</span> ${escapeHtml(ex.plannedSets||"?")}×${escapeHtml(ex.plannedReps||"?")}`
+    + (ex.plannedCharge?` @ ${escapeHtml(ex.plannedCharge)} kg`:"")
+    + (ex.rest?` &nbsp;·&nbsp; <span class="k">repos</span> ${escapeHtml(ex.rest)}s`:"")
+    + (ex.rirTarget?` &nbsp;·&nbsp; <span class="k">RIR cible</span> ${escapeHtml(ex.rirTarget)}`:"");
+  body.appendChild(presc);
+
+  /* image (bascule avec l'alternative) */
+  let imgEl=buildImage(ex); body.appendChild(imgEl);
+  function refreshImage(){ const n=buildImage(ex); body.replaceChild(n,imgEl); imgEl=n; }
+
+  if(ex.setup || ex.divers){
+    const st=document.createElement("div"); st.className="setup";
+    st.innerHTML=(ex.setup?`<b>Setup&nbsp;:</b> ${escapeHtml(ex.setup)}`:"")
+      +(ex.setup&&ex.divers?"<br>":"")
+      +(ex.divers?`<b>Consigne&nbsp;:</b> ${escapeHtml(ex.divers)}`:"");
+    body.appendChild(st);
+  }
+  if(ex.warn){
+    const sf=document.createElement("div"); sf.className="safety";
+    sf.textContent="Zone déjà douloureuse : garde RIR ≥ 2, pas d'exécution à l'échec.";
+    body.appendChild(sf);
+  }
+
+  /* bloc alternative en salle (machine prise) */
+  if(ex.alt){
+    const a=document.createElement("div"); a.className="alt";
+    a.innerHTML=`<div class="lead">Alternative en salle · machine prise</div>
+      <div class="an">${escapeHtml(ex.alt.name)}</div>`
+      + (ex.alt.setup?`<div class="det"><b>Setup&nbsp;:</b> ${escapeHtml(ex.alt.setup)}</div>`:"")
+      + (ex.alt.note?`<div class="det">${escapeHtml(ex.alt.note)}</div>`:"");
+    const btn=document.createElement("button"); btn.className="swap"+(ex.usedAlt?" on":"");
+    btn.textContent=ex.usedAlt?"Alternative en cours — revenir à l'exercice prévu":"J'ai fait l'alternative";
+    btn.onclick=()=>{
+      ex.usedAlt=!ex.usedAlt;
+      btn.classList.toggle("on",ex.usedAlt);
+      btn.textContent=ex.usedAlt?"Alternative en cours — revenir à l'exercice prévu":"J'ai fait l'alternative";
+      paintHeadName(); refreshImage(); refreshSummary(); scheduleSave();
+    };
+    a.appendChild(btn); body.appendChild(a);
+  }
+
+  const grid=document.createElement("div"); grid.className="grid"; body.appendChild(grid);
+  grid.appendChild(fieldStepper("Séries réellement faites", ex.serie, 1, v=>{ ex.serie=v; onEdit(); }, {min:0}));
+  grid.appendChild(fieldText("Reps", ex.reps, "ex. 8  ·  12;8;8  ·  10/side", v=>{ ex.reps=v; onEditText(); }));
+  grid.appendChild(fieldCharge(ex, ()=>onEdit()));
+  grid.appendChild(fieldPaired(ex, ()=>onEditText()));
+
+  const hero=document.createElement("div"); hero.className="hero"; body.appendChild(hero);
+  const hlbl=document.createElement("div"); hlbl.className="lbl";
+  hlbl.innerHTML=`<span class="t">RIR — reps en réserve</span><span class="cible">${ex.rirTarget?("cible "+escapeHtml(ex.rirTarget)):""}</span>`;
+  hero.appendChild(hlbl);
+  const rirChips=document.createElement("div"); rirChips.className="chips rir"; hero.appendChild(rirChips);
+  const rirHint=document.createElement("div"); rirHint.className="hint"; hero.appendChild(rirHint);
+
+  function paintRir(){
+    rirChips.innerHTML="";
+    for(let v=0; v<=10; v++){
+      const z=rirZone(v, ex.cuff);
+      const c=document.createElement("button");
+      c.className="chip"+(String(v)===String(ex.rir)?(" on "+z.z):"");
+      c.textContent=v;
+      c.onclick=()=>{ ex.rir=(String(ex.rir)===String(v))?"":String(v); paintRir(); onEdit(); };
+      rirChips.appendChild(c);
+    }
+    if(ex.rir===""){ rirHint.textContent=""; rirHint.className="hint"; }
+    else{
+      const z=rirZone(Number(ex.rir), ex.cuff);
+      rirHint.textContent=z.hint; rirHint.className="hint "+z.cls;
+      if(ex.warn && Number(ex.rir)<2){ rirHint.textContent="zone sensible : vise RIR ≥ 2  ·  "+z.hint; rirHint.className="hint danger"; }
+    }
+  }
+  paintRir();
+
+  const sub=document.createElement("div"); sub.className="sub"; body.appendChild(sub);
+  sub.appendChild(chipRow("RPE — difficulté ressentie", 1, 10, ex.rpe, v=>{ ex.rpe=v; onEditText(); }));
+  const painWrap=chipRow("Douleur (0–10)", 0, 10, ex.pain, v=>{
+    ex.pain=v; if(v===""||Number(v)===0){ ex.painLoc=""; }
+    onEditText(); toggleLoc();
+  });
+  sub.appendChild(painWrap);
+
+  const locWrap=document.createElement("div"); locWrap.className="field"; locWrap.style.marginTop="10px";
+  locWrap.innerHTML=`<label>Localisation douleur</label>`;
+  const locSel=document.createElement("select"); locSel.className="txt";
+  PAIN_LOCS.forEach(l=>{ const o=document.createElement("option"); o.value=l; o.textContent=l||"(aucune)"; if(l===ex.painLoc)o.selected=true; locSel.appendChild(o); });
+  locSel.onchange=()=>{ ex.painLoc=locSel.value; onEditText(); };
+  locWrap.appendChild(locSel); sub.appendChild(locWrap);
+  function toggleLoc(){ locWrap.style.display=(ex.pain!==""&&Number(ex.pain)>0)?"block":"none"; }
+  toggleLoc();
+
+  const obsWrap=document.createElement("div"); obsWrap.className="field"; obsWrap.style.marginTop="12px";
+  obsWrap.innerHTML=`<label>Remarques (Observations)</label>`;
+  const obs=document.createElement("textarea"); obs.className="obs"; obs.value=ex.obs; obs.placeholder="ressenti, technique, douleur…";
+  obs.addEventListener("input",()=>{ ex.obs=obs.value; onEditText(); });
+  obsWrap.appendChild(obs); sub.appendChild(obsWrap);
+
+  function refreshSummary(){
+    const parts=[];
+    parts.push((ex.serie||"?")+"×"+(ex.reps||"?"));
+    if(ex.charge!=="") parts.push(ex.charge+"kg");
+    parts.push("RIR "+(ex.rir!==""?ex.rir:"—"));
+    if(ex.rpe!=="") parts.push("RPE "+ex.rpe);
+    if(ex.pain!==""&&Number(ex.pain)>0) parts.push("dlr "+ex.pain);
+    sum.textContent=parts.join("  ·  ");
+  }
+  refreshSummary();
+
+  function onEdit(){
+    card.classList.toggle("done", ex.rir!=="");
+    paintHeadName();
+    refreshSummary();
+    scheduleSave(); updateProgress();
+  }
+  function onEditText(){ scheduleSave(); updateProgress(); }
+
+  head.addEventListener("click",(e)=>{
+    if(e.target.closest("button")) return;
+    const collapsed=body.classList.toggle("hidden");
+    sum.classList.toggle("hidden",!collapsed);
+    head.querySelector(".chev").textContent=collapsed?"▸":"▾";
+    if(collapsed) refreshSummary();
+  });
+  if(ex.rir!==""){ body.classList.add("hidden"); sum.classList.remove("hidden"); head.querySelector(".chev").textContent="▸"; }
+
+  return card;
+}
+
+function fieldStepper(label,val,step,cb,opts){
+  opts=opts||{};
+  const w=document.createElement("div"); w.className="field";
+  w.innerHTML=`<label>${label}</label>`;
+  const s=document.createElement("div"); s.className="stepper";
+  const minus=document.createElement("button"); minus.textContent="−";
+  const inp=document.createElement("input"); inp.inputMode="numeric"; inp.value=(val===""?"":val);
+  const plus=document.createElement("button"); plus.textContent="+";
+  function set(v){ if(opts.min!=null&&v<opts.min)v=opts.min; inp.value=v; cb(String(v)); }
+  minus.onclick=()=>{ const c=Number(inp.value||0); set(c-step); };
+  plus.onclick=()=>{ const c=Number(inp.value||0); set(c+step); };
+  inp.addEventListener("input",()=>{ cb(inp.value.trim()); });
+  s.append(minus,inp,plus); w.appendChild(s); return w;
+}
+function fieldText(label,val,ph,cb){
+  const w=document.createElement("div"); w.className="field";
+  w.innerHTML=`<label>${label}</label>`;
+  const i=document.createElement("input"); i.className="txt"; i.value=val||""; i.placeholder=ph||"";
+  i.addEventListener("input",()=>cb(i.value));
+  w.appendChild(i); return w;
+}
+function fieldCharge(ex,cb){
+  const w=document.createElement("div"); w.className="field";
+  w.innerHTML=`<label>Charge (kg) — <span style="font-weight:400">1 haltère si Paired</span></label>`;
+  const s=document.createElement("div"); s.className="stepper";
+  const minus=document.createElement("button"); minus.textContent="−";
+  const inp=document.createElement("input"); inp.inputMode="decimal"; inp.value=ex.charge||"";
+  const plus=document.createElement("button"); plus.textContent="+";
+  function set(v){ v=Math.round(v*100)/100; if(v<0)v=0; inp.value=v; ex.charge=String(v); cb(); }
+  minus.onclick=()=>{ set(Number(inp.value||0)-1.25); };
+  plus.onclick=()=>{ set(Number(inp.value||0)+1.25); };
+  inp.addEventListener("input",()=>{ ex.charge=inp.value.trim(); cb(); });
+  s.append(minus,inp,plus); w.appendChild(s); return w;
+}
+function fieldPaired(ex,cb){
+  const w=document.createElement("div"); w.className="field";
+  w.innerHTML=`<label>Paired (nb d'haltères)</label>`;
+  const p=document.createElement("div"); p.className="paired";
+  [1,2].forEach(n=>{
+    const b=document.createElement("button"); b.textContent=n; if(ex.paired===n)b.classList.add("on");
+    b.onclick=()=>{ ex.paired=n; p.querySelectorAll("button").forEach(x=>x.classList.remove("on")); b.classList.add("on"); cb(); };
+    p.appendChild(b);
+  });
+  w.appendChild(p); return w;
+}
+function chipRow(label,min,max,val,cb){
+  const w=document.createElement("div"); w.className="field"; w.style.marginTop="8px";
+  w.innerHTML=`<label>${label}</label>`;
+  const row=document.createElement("div"); row.className="chips";
+  function paint(){
+    row.innerHTML="";
+    for(let v=min; v<=max; v++){
+      const c=document.createElement("button");
+      c.className="chip"+(String(v)===String(val)?" on plain":"");
+      c.textContent=v;
+      c.onclick=()=>{ val=(String(val)===String(v))?"":String(v); cb(val); paint(); };
+      row.appendChild(c);
+    }
+  }
+  paint(); w.appendChild(row); return w;
+}
+
+function updateProgress(){
+  const s=activeSession();
+  const fill=document.getElementById("progFill");
+  const lab=document.getElementById("progLab");
+  if(!s || s.exercises.length===0){ fill.style.width="0%"; lab.textContent="—"; return; }
+  const done=s.exercises.filter(e=>e.rir!=="").length;
+  const tot=s.exercises.length;
+  fill.style.width=Math.round(done/tot*100)+"%";
+  lab.textContent=`${done}/${tot} exercices encodés (RIR renseigné)`;
+}
+
+/* ---------- export vers Training (ordre = plan.xlsx) ---------- */
+function buildExportTSV(){
+  const s=activeSession(); if(!s) return "";
+  const rows=s.exercises.map(ex=>{
+    const exName = (ex.usedAlt && ex.alt && ex.alt.name) ? ex.alt.name : ex.name;
+    return [
+      s.date, exName, ex.serie, ex.reps, ex.charge, ex.paired, ex.rest,
+      ex.rir, ex.rpe, ex.pain, ex.painLoc, ex.obs, s.type
+    ].map(cellClean).join("\t");
+  });
+  return rows.join("\n");
+}
+function cellClean(v){ if(v===null||v===undefined) return ""; return String(v).replace(/\t/g," ").replace(/\r?\n/g," "); }
+
+/* ---------- sauvegarde / restauration par fichier ---------- */
+function backupFile(){
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url; a.download="traqueur-sauvegarde-"+today()+".json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+  setDot("Sauvegarde téléchargée ✓");
+}
+function restoreFile(file){
+  const r=new FileReader();
+  r.onload=()=>{
+    let obj;
+    try{ obj=JSON.parse(r.result); }
+    catch(e){ alert("Fichier illisible : "+e.message); return; }
+    if(!obj || !Array.isArray(obj.sessions)){ alert("Ce n'est pas une sauvegarde valide (clé \"sessions\" absente)."); return; }
+    if(!confirm("Restaurer remplacera les séances actuelles par celles de la sauvegarde. Continuer ?")) return;
+    state=obj; if(!state.activeId && state.sessions[0]) state.activeId=state.sessions[0].id;
+    doSave(); closeMenu(); render();
+  };
+  r.readAsText(file);
+}
+
+/* ---------- events ---------- */
+function openImport(){ document.getElementById("importText").value=""; setMsg("importMsg",""); document.getElementById("importModal").classList.add("open"); }
+function closeImport(){ document.getElementById("importModal").classList.remove("open"); }
+function setMsg(id,txt,cls){ const e=document.getElementById(id); e.textContent=txt||""; e.className="msg"+(cls?" "+cls:""); }
+
+function doImport(){
+  const raw=document.getElementById("importText").value.trim();
+  if(!raw){ setMsg("importMsg","Colle d'abord le bloc JSON.","err"); return; }
+  let obj;
+  try{ obj=JSON.parse(raw); }
+  catch(e){ setMsg("importMsg","JSON invalide : "+e.message,"err"); return; }
+  let sessions;
+  try{ sessions=buildSessions(obj); }
+  catch(e){ setMsg("importMsg",e.message,"err"); return; }
+  sessions.forEach(s=>state.sessions.push(s));
+  state.activeId=sessions[0].id;
+  scheduleSave(); closeImport(); render();
+}
+
+function loadExample(){
+  const ex = {
+    "sessions":[{
+      "session":"Exemple — Full body A (à remplacer)",
+      "date":today(),"type":"salle",
+      "exercises":[
+        {"name":"Barbell Back Squat","sets":3,"reps":"5-8","charge":"60","paired":1,"rest":150,"setup":"Cage à squat, barre olympique 20 kg","divers":"Descente contrôlée, gainage","rirTarget":"2-3","alt":{"name":"Leg Press","setup":"Machine leg press, pieds mi-hauteur","note":"si le rack est pris"}},
+        {"name":"Flat Barbell Bench Press","sets":3,"reps":"5-8","charge":"50","paired":1,"rest":150,"setup":"Banc plat, pareur conseillé","divers":"Omoplates serrées","rirTarget":"2-3","alt":{"name":"Machine Chest Press","setup":"Siège réglé, poignées à mi-poitrine","note":"si le banc est pris"}},
+        {"name":"Lat Pulldown","sets":3,"reps":"8-12","charge":"55","paired":1,"rest":120,"setup":"Poulie haute, barre large","divers":"Tire vers le haut du sternum","rirTarget":"1-2","alt":{"name":"Seated Cable Row","setup":"Poulie basse, poignée neutre","note":"si la tour est prise"}},
+        {"name":"Machine Shoulder Press","sets":2,"reps":"6-10","charge":"30","paired":1,"rest":120,"setup":"Siège réglé","divers":"Amplitude sans douleur","rirTarget":"2-3","warn":true,"alt":{"name":"Standing Dumbbell Overhead Press","setup":"Haltères, gainage","note":"si la machine est prise"}},
+        {"name":"Dumbbell Lateral Raise","sets":3,"reps":"12-15","charge":"7.5","paired":2,"rest":75,"setup":"Debout, léger buste en avant","divers":"Monte à l'horizontale","rirTarget":"0-2","alt":{"name":"Cable Lateral Raise","setup":"Poulie basse, une main","note":"si besoin de tension constante"}},
+        {"name":"Band Face Pull","sets":3,"reps":"15-20","charge":"0","paired":1,"rest":60,"setup":"Bande à hauteur du visage","divers":"Rotation externe en fin","rirTarget":"3-4","cuff":true},
+        {"name":"Band External Rotation","sets":2,"reps":"15-20","charge":"0","paired":1,"rest":45,"setup":"Coude au corps, bande légère","divers":"Mouvement lent, jamais à l'échec","rirTarget":"3-4","cuff":true}
+      ]
+    }]
+  };
+  const sessions=buildSessions(ex); sessions.forEach(s=>state.sessions.push(s)); state.activeId=sessions[0].id;
+  scheduleSave(); closeImport(); render();
+}
+
+function openExport(){
+  if(!activeSession()){ return; }
+  document.getElementById("exportText").value=buildExportTSV();
+  setMsg("exportMsg","Ordre des colonnes : "+TRAINING_COLS.join(" · "));
+  document.getElementById("exportModal").classList.add("open");
+}
+async function copyExport(){
+  const t=document.getElementById("exportText").value;
+  try{ await navigator.clipboard.writeText(t); setMsg("exportMsg","Copié ✓ — colle sous la dernière ligne de Training.","ok"); }
+  catch(e){
+    const ta=document.getElementById("exportText"); ta.focus(); ta.select();
+    setMsg("exportMsg","Sélectionne le texte ci-dessus et copie-le à la main (copie auto bloquée).","err");
+  }
+}
+
+/* menu actions */
+function openMenu(){ document.getElementById("menuModal").classList.add("open"); }
+function closeMenu(){ document.getElementById("menuModal").classList.remove("open"); }
+function dupSession(){
+  const s=activeSession(); if(!s)return;
+  const copy=JSON.parse(JSON.stringify(s));
+  copy.id=uid(); copy.date=today();
+  copy.exercises.forEach(e=>{ e.rir="";e.rpe="";e.pain="";e.painLoc="";e.obs=""; e.usedAlt=false;
+    e.serie=e.plannedSets; e.reps=e.plannedReps; e.charge=e.plannedCharge; e.paired=e.plannedPaired; });
+  copy.title=s.title.replace(/\s·\s\d{4}-\d{2}-\d{2}$/,"");
+  state.sessions.push(copy); state.activeId=copy.id;
+  scheduleSave(); closeMenu(); render();
+}
+function deleteSession(){
+  const s=activeSession(); if(!s)return;
+  if(!confirm("Supprimer « "+s.title+" » et ses saisies ?"))return;
+  state.sessions=state.sessions.filter(x=>x.id!==s.id);
+  state.activeId=state.sessions.length?state.sessions[state.sessions.length-1].id:null;
+  scheduleSave(); closeMenu(); render();
+}
+function resetAll(){
+  if(!confirm("Tout effacer : toutes les séances et saisies seront perdues. Continuer ?"))return;
+  state={sessions:[],activeId:null}; scheduleSave(); closeMenu(); render();
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* wire up */
+document.getElementById("sessionSelect").addEventListener("change",e=>{ state.activeId=e.target.value; scheduleSave(); render(); });
+document.getElementById("btnImport").onclick=openImport;
+document.getElementById("btnCloseImport").onclick=closeImport;
+document.getElementById("btnDoImport").onclick=doImport;
+document.getElementById("btnLoadExample").onclick=loadExample;
+document.getElementById("btnExport").onclick=openExport;
+document.getElementById("btnCloseExport").onclick=()=>document.getElementById("exportModal").classList.remove("open");
+document.getElementById("btnCopy").onclick=copyExport;
+document.getElementById("btnMenu").onclick=openMenu;
+document.getElementById("btnCloseMenu").onclick=closeMenu;
+document.getElementById("btnDup").onclick=dupSession;
+document.getElementById("btnDelete").onclick=deleteSession;
+document.getElementById("btnResetAll").onclick=resetAll;
+document.getElementById("btnBackup").onclick=backupFile;
+document.getElementById("btnRestore").onclick=()=>document.getElementById("restoreInput").click();
+document.getElementById("restoreInput").addEventListener("change",e=>{ if(e.target.files[0]) restoreFile(e.target.files[0]); e.target.value=""; });
+document.getElementById("btnInstall").onclick=()=>{ closeMenu(); document.getElementById("installModal").classList.add("open"); };
+document.getElementById("btnCloseInstall").onclick=()=>document.getElementById("installModal").classList.remove("open");
+[["importModal",closeImport],["exportModal",()=>document.getElementById("exportModal").classList.remove("open")],["menuModal",closeMenu],["installModal",()=>document.getElementById("installModal").classList.remove("open")]]
+  .forEach(([id,fn])=>{ document.getElementById(id).addEventListener("click",e=>{ if(e.target.id===id) fn(); }); });
+
+/* init */
+(function(){
+  storeOK=storageAvailable();
+  if(storeOK){ loadState(); } else { showBanner(); }
+  render();
+  setDot(storeOK?"Prêt":"Sauvegarde indisponible");
+})();
+</script>
+</body>
+</html>
