@@ -32,7 +32,7 @@
     font-size:16px; line-height:1.4; padding-bottom:96px;
     padding-top:env(safe-area-inset-top);
   }
-  .wrap{max-width:620px;margin:0 auto;padding:12px 12px 0}
+  .wrap{max-width:620px;margin:0 auto;padding:12px 12px 0;overflow-x:hidden}
 
   .topbar{position:sticky;top:0;z-index:20;background:var(--bg);padding-top:6px}
   .topbar h1{font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;font-weight:700}
@@ -88,13 +88,14 @@
   .alt .swap{margin-top:9px;min-height:38px;width:100%;border:1px solid var(--accent);background:var(--surface);color:var(--accent);border-radius:9px;font-weight:600;cursor:pointer}
   .alt .swap.on{background:var(--accent);color:#fff}
 
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+  .field{min-width:0}
   .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:600}
-  .stepper{display:flex;align-items:stretch;border:1px solid var(--line-strong);border-radius:10px;overflow:hidden;background:var(--surface)}
+  .stepper{display:flex;align-items:stretch;border:1px solid var(--line-strong);border-radius:10px;overflow:hidden;background:var(--surface);min-width:0}
   .stepper button{width:var(--tap);min-height:var(--tap);border:0;background:#F2F5F8;font-size:20px;color:var(--ink);cursor:pointer;flex:0 0 auto}
   .stepper button:active{background:#E5EBF1}
   .stepper input{flex:1 1 auto;min-width:0;border:0;text-align:center;font-family:var(--mono);font-weight:700;font-size:17px;background:transparent}
-  .txt{width:100%;height:var(--tap);border:1px solid var(--line-strong);border-radius:10px;padding:0 10px;font-family:var(--mono);background:var(--surface)}
+  .txt{width:100%;min-width:0;height:var(--tap);border:1px solid var(--line-strong);border-radius:10px;padding:0 10px;font-family:var(--mono);background:var(--surface)}
   .obs{width:100%;min-height:46px;border:1px solid var(--line-strong);border-radius:10px;padding:8px 10px;background:var(--surface);resize:vertical;font-size:15px}
   .paired{display:flex;gap:6px}
   .paired button{flex:1;min-height:var(--tap);border:1px solid var(--line-strong);border-radius:10px;background:var(--surface);font-weight:700;font-family:var(--mono);cursor:pointer}
@@ -640,7 +641,8 @@ function buildCard(ex, idx){
     head.querySelector(".chev").textContent=collapsed?"▸":"▾";
     if(collapsed) refreshSummary();
   });
-  if(ex.rir!==""){ body.classList.add("hidden"); sum.classList.remove("hidden"); head.querySelector(".chev").textContent="▸"; }
+  // Replié par défaut : liste compacte, chaque exercice se déplie au tap.
+  body.classList.add("hidden"); sum.classList.remove("hidden"); head.querySelector(".chev").textContent="▸"; refreshSummary();
 
   return card;
 }
