@@ -1,5 +1,5 @@
 /* Service worker — Traqueur de séance (PWA hors-ligne) */
-const VERSION = "traqueur-v2-2026-08-25";
+const VERSION = "traqueur-v3-2026-08-25";
 const SHELL_CACHE = "shell-" + VERSION;
 const IMG_CACHE = "img-" + VERSION;
 const IMG_HOST = "raw.githubusercontent.com";
@@ -135,23 +135,31 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Coquille (même origine) : cache d'abord, repli réseau, repli index.html
+  // Même origine : la PAGE en « réseau d'abord » (se met à jour toute seule
+  // dès que tu es en ligne, repli sur le cache hors-ligne) ; les autres
+  // ressources en « cache immédiat + actualisation en arrière-plan ».
   if (url.origin === self.location.origin) {
+    const isDoc = req.mode === "navigate" || req.destination === "document";
     event.respondWith((async () => {
       const cache = await caches.open(SHELL_CACHE);
-      const hit = await cache.match(req, { ignoreSearch: true });
-      if (hit) return hit;
-      try {
-        const res = await fetch(req);
-        if (req.mode === "navigate") cache.put(req, res.clone());
-        return res;
-      } catch (e) {
-        if (req.mode === "navigate") {
-          const idx = await cache.match("./index.html");
-          if (idx) return idx;
+      if (isDoc) {
+        try {
+          const res = await fetch(req);
+          cache.put("./index.html", res.clone());
+          return res;
+        } catch (e) {
+          const cached = (await cache.match(req, { ignoreSearch: true }))
+                      || (await cache.match("./index.html"));
+          if (cached) return cached;
+          return new Response("", { status: 504, statusText: "hors-ligne" });
         }
-        return new Response("", { status: 504, statusText: "hors-ligne" });
       }
+      const hit = await cache.match(req, { ignoreSearch: true });
+      const network = fetch(req).then((res) => {
+        if (res && res.status === 200) cache.put(req, res.clone());
+        return res;
+      }).catch(() => null);
+      return hit || (await network) || new Response("", { status: 504, statusText: "hors-ligne" });
     })());
   }
 });
