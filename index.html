@@ -66,6 +66,23 @@
   .badge.cuff{background:var(--good-bg);color:var(--good)}
   .badge.check{background:var(--good);color:#fff}
   .badge.alt-b{background:#E1EAF7;color:var(--accent)}
+  .timers{display:flex;gap:8px;margin:2px 0 12px;flex-wrap:wrap}
+  .howto{margin:0 0 12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;padding:9px 12px 9px 13px;background:#F7FAFD}
+  .howto .lead{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:5px}
+  .howto ul{margin:0;padding-left:18px}
+  .howto li{font-size:14px;color:var(--ink);margin:4px 0;line-height:1.45}
+  .tbtn{min-height:40px;border:1px solid var(--accent);background:var(--surface);color:var(--accent);border-radius:9px;padding:0 12px;font-weight:700;font-family:var(--mono);font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .tbtn .ic{font-size:15px}
+  .tbtn.hold{border-color:var(--amber);color:var(--amber)}
+  .tbtn:active{transform:translateY(1px)}
+  .timerbar{position:fixed;left:0;right:0;top:0;z-index:60;display:none;justify-content:center;pointer-events:none;padding-top:calc(env(safe-area-inset-top) + 8px)}
+  .timerbar.on{display:flex}
+  .timerpill{pointer-events:auto;background:var(--accent);color:#fff;border-radius:999px;padding:9px 10px 9px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 8px 24px rgba(20,32,43,.28)}
+  .timerpill.done{background:var(--good)}
+  .timerpill .lab{font-size:11px;letter-spacing:.09em;text-transform:uppercase;opacity:.9;font-weight:700}
+  .timerpill .cd{font-family:var(--mono);font-weight:700;font-size:22px;min-width:70px;text-align:center;font-variant-numeric:tabular-nums}
+  .timerpill button{pointer-events:auto;background:rgba(255,255,255,.22);border:0;color:#fff;border-radius:8px;min-width:40px;min-height:36px;font-weight:700;font-family:var(--mono);font-size:14px;cursor:pointer}
+  .timerpill button:active{transform:translateY(1px)}
   .collapsed-sum{font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .chev{color:var(--muted);font-size:13px}
 
@@ -361,6 +378,74 @@ function activeSession(){ return state.sessions.find(s=>s.id===state.activeId) |
 function imgUrlFor(name){ const p=IMG_MAP[name]; return p ? IMG_BASE+p : null; }
 function currentName(ex){ return (ex.usedAlt && ex.alt && ex.alt.name) ? ex.alt.name : ex.name; }
 
+/* ---------- Minuteur (repos + maintien) ---------- */
+const timer = { intId:null, endAt:0, label:"", ctx:null, wake:null, doneTO:null };
+function fmtT(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60), r=s%60; return m+":"+String(r).padStart(2,"0"); }
+function holdSeconds(ex){
+  if(ex.hold!=null && !isNaN(Number(ex.hold))) return Number(ex.hold);
+  const m=String(ex.reps||"").match(/(\d+)\s*(?:[-–]\s*(\d+)\s*)?s(?:ec)?\b/i);
+  if(m) return Number(m[2]||m[1]);
+  return null;
+}
+function ensureAudio(){
+  try{
+    if(!timer.ctx){ const AC=window.AudioContext||window.webkitAudioContext; if(AC) timer.ctx=new AC(); }
+    if(timer.ctx && timer.ctx.state==="suspended") timer.ctx.resume();
+  }catch(e){}
+}
+function beep(){
+  if(!timer.ctx) return;
+  const c=timer.ctx, t0=c.currentTime;
+  [0,0.28,0.56].forEach((off,i)=>{
+    const o=c.createOscillator(), g=c.createGain();
+    o.type="sine"; o.frequency.value = i===2 ? 1180 : 880;
+    o.connect(g); g.connect(c.destination);
+    g.gain.setValueAtTime(0.0001, t0+off);
+    g.gain.exponentialRampToValueAtTime(0.5, t0+off+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0+off+0.22);
+    o.start(t0+off); o.stop(t0+off+0.24);
+  });
+}
+async function reqWake(){ try{ if("wakeLock" in navigator) timer.wake=await navigator.wakeLock.request("screen"); }catch(e){} }
+function relWake(){ try{ if(timer.wake){ timer.wake.release(); timer.wake=null; } }catch(e){} }
+function startTimer(sec, label){
+  clearTimeout(timer.doneTO);
+  if(timer.intId){ clearInterval(timer.intId); timer.intId=null; }
+  ensureAudio(); reqWake();
+  timer.label=label; timer.endAt=Date.now()+sec*1000;
+  paintTimer(sec, false);
+  document.getElementById("timerBar").classList.add("on");
+  timer.intId=setInterval(()=>{
+    const left=Math.ceil((timer.endAt-Date.now())/1000);
+    if(left<=0){ clearInterval(timer.intId); timer.intId=null; onTimerEnd(); }
+    else paintTimer(left, false);
+  }, 250);
+}
+function addTime(sec){ if(timer.intId){ timer.endAt+=sec*1000; paintTimer(Math.ceil((timer.endAt-Date.now())/1000), false); } }
+function onTimerEnd(){
+  try{ if(navigator.vibrate) navigator.vibrate([220,120,220]); }catch(e){}
+  beep(); paintTimer(0, true); relWake();
+  timer.doneTO=setTimeout(stopTimer, 4000);
+}
+function stopTimer(){
+  clearTimeout(timer.doneTO);
+  if(timer.intId){ clearInterval(timer.intId); timer.intId=null; }
+  relWake();
+  document.getElementById("timerBar").classList.remove("on");
+}
+function paintTimer(left, done){
+  const pill=document.getElementById("timerPill");
+  document.getElementById("timerLabel").textContent=timer.label;
+  document.getElementById("timerCd").textContent = done ? "Terminé" : fmtT(left);
+  pill.classList.toggle("done", done);
+  document.getElementById("timerPlus").style.display = done ? "none" : "";
+}
+
+function normalizeExec(v){
+  if(!v) return [];
+  if(Array.isArray(v)) return v.map(s=>String(s).replace(/^[-•\s]+/,"").trim()).filter(Boolean);
+  return String(v).split(/\r?\n/).map(s=>s.replace(/^[-•\s]+/,"").trim()).filter(Boolean);
+}
 function normalizeAlt(a){
   if(!a || !a.name) return null;
   return { name:String(a.name).trim(), setup:(a.setup||"").trim(), note:(a.note||"").trim() };
@@ -377,6 +462,8 @@ function normalizeExercise(x){
     rirTarget:(x.rirTarget!=null?String(x.rirTarget):""),
     plannedPaired:(x.paired!=null?Number(x.paired):1)||1,
     warn:!!x.warn, cuff:!!x.cuff,
+    hold:(x.hold!=null && !isNaN(Number(x.hold)) ? Number(x.hold) : null),
+    execution:normalizeExec(x.execution),
     alt:normalizeAlt(x.alt),
     usedAlt:false,
     serie:(x.sets!=null?String(x.sets):""),
@@ -525,6 +612,24 @@ function buildCard(ex, idx){
     + (ex.rirTarget?` &nbsp;·&nbsp; <span class="k">RIR cible</span> ${escapeHtml(ex.rirTarget)}`:"");
   body.appendChild(presc);
 
+  /* minuteurs : repos (chaque exo) + maintien (exos au temps) */
+  const timers=document.createElement("div"); timers.className="timers";
+  const restSec=Number(ex.rest)||0;
+  if(restSec>0){
+    const rb=document.createElement("button"); rb.className="tbtn";
+    rb.innerHTML=`<span class="ic">⏱</span> Repos ${fmtT(restSec)}`;
+    rb.onclick=()=>startTimer(restSec,"Repos");
+    timers.appendChild(rb);
+  }
+  const hs=holdSeconds(ex);
+  if(hs){
+    const hb=document.createElement("button"); hb.className="tbtn hold";
+    hb.innerHTML=`<span class="ic">⏱</span> Maintien ${fmtT(hs)}`;
+    hb.onclick=()=>startTimer(hs,"Maintien");
+    timers.appendChild(hb);
+  }
+  if(timers.children.length) body.appendChild(timers);
+
   /* image (bascule avec l'alternative) */
   let imgEl=buildImage(ex); body.appendChild(imgEl);
   function refreshImage(){ const n=buildImage(ex); body.replaceChild(n,imgEl); imgEl=n; }
@@ -540,6 +645,15 @@ function buildCard(ex, idx){
     const sf=document.createElement("div"); sf.className="safety";
     sf.textContent="Zone déjà douloureuse : garde RIR ≥ 2, pas d'exécution à l'échec.";
     body.appendChild(sf);
+  }
+
+  /* Comment bien faire — repères d'exécution */
+  if(ex.execution && ex.execution.length){
+    const g=document.createElement("div"); g.className="howto";
+    g.innerHTML='<div class="lead">Comment bien faire</div>';
+    const ul=document.createElement("ul");
+    ex.execution.forEach(step=>{ const li=document.createElement("li"); li.textContent=step; ul.appendChild(li); });
+    g.appendChild(ul); body.appendChild(g);
   }
 
   /* bloc alternative en salle (machine prise) */
@@ -783,12 +897,12 @@ function loadExample(){
       "session":"Exemple — Full body A (à remplacer)",
       "date":today(),"type":"salle",
       "exercises":[
-        {"name":"Barbell Back Squat","sets":3,"reps":"5-8","charge":"60","paired":1,"rest":150,"setup":"Cage à squat, barre olympique 20 kg","divers":"Descente contrôlée, gainage","rirTarget":"2-3","alt":{"name":"Leg Press","setup":"Machine leg press, pieds mi-hauteur","note":"si le rack est pris"}},
+        {"name":"Barbell Back Squat","sets":3,"reps":"5-8","charge":"60","paired":1,"rest":150,"setup":"Cage à squat, barre olympique 20 kg","divers":"Descente contrôlée, gainage","rirTarget":"2-3","execution":["Barre sur le haut des trapèzes, mains un peu plus larges que les épaules.","Pieds largeur d'épaules, pointes légèrement ouvertes ; gaine avant de descendre.","Pousse les hanches en arrière et fléchis les genoux dans l'axe des pieds.","Descends jusqu'à cuisses parallèles au sol (ou plus bas sans arrondir le bas du dos).","Remonte en poussant dans les talons, sans verrouiller brutalement les genoux."],"alt":{"name":"Leg Press","setup":"Machine leg press, pieds mi-hauteur","note":"si le rack est pris"}},
         {"name":"Flat Barbell Bench Press","sets":3,"reps":"5-8","charge":"50","paired":1,"rest":150,"setup":"Banc plat, pareur conseillé","divers":"Omoplates serrées","rirTarget":"2-3","alt":{"name":"Machine Chest Press","setup":"Siège réglé, poignées à mi-poitrine","note":"si le banc est pris"}},
         {"name":"Lat Pulldown","sets":3,"reps":"8-12","charge":"55","paired":1,"rest":120,"setup":"Poulie haute, barre large","divers":"Tire vers le haut du sternum","rirTarget":"1-2","alt":{"name":"Seated Cable Row","setup":"Poulie basse, poignée neutre","note":"si la tour est prise"}},
         {"name":"Machine Shoulder Press","sets":2,"reps":"6-10","charge":"30","paired":1,"rest":120,"setup":"Siège réglé","divers":"Amplitude sans douleur","rirTarget":"2-3","warn":true,"alt":{"name":"Standing Dumbbell Overhead Press","setup":"Haltères, gainage","note":"si la machine est prise"}},
         {"name":"Dumbbell Lateral Raise","sets":3,"reps":"12-15","charge":"7.5","paired":2,"rest":75,"setup":"Debout, léger buste en avant","divers":"Monte à l'horizontale","rirTarget":"0-2","alt":{"name":"Cable Lateral Raise","setup":"Poulie basse, une main","note":"si besoin de tension constante"}},
-        {"name":"Band Face Pull","sets":3,"reps":"15-20","charge":"0","paired":1,"rest":60,"setup":"Bande à hauteur du visage","divers":"Rotation externe en fin","rirTarget":"3-4","cuff":true},
+        {"name":"Band Face Pull","sets":3,"reps":"15-20","charge":"0","paired":1,"rest":60,"setup":"Bande à hauteur du visage","divers":"Rotation externe en fin","rirTarget":"3-4","cuff":true,"execution":["Bande ancrée à hauteur des yeux, une extrémité dans chaque main, bras tendus.","Tire vers le front en écartant les mains, coudes hauts et vers l'extérieur.","Termine par une rotation externe des épaules (pouces vers l'arrière).","Mouvement lent et contrôlé, jamais jusqu'à l'échec : c'est un exercice de coiffe."]},
         {"name":"Band External Rotation","sets":2,"reps":"15-20","charge":"0","paired":1,"rest":45,"setup":"Coude au corps, bande légère","divers":"Mouvement lent, jamais à l'échec","rirTarget":"3-4","cuff":true}
       ]
     }]
@@ -863,6 +977,20 @@ document.getElementById("btnCloseInstall").onclick=()=>document.getElementById("
 
 /* init */
 (function(){
+  // pastille du minuteur (créée une fois, superposée en haut)
+  const bar=document.createElement("div"); bar.className="timerbar"; bar.id="timerBar";
+  bar.innerHTML=`<div class="timerpill" id="timerPill">
+    <div style="display:flex;flex-direction:column;line-height:1.1">
+      <span class="lab" id="timerLabel">Repos</span>
+      <span class="cd" id="timerCd">0:00</span>
+    </div>
+    <button id="timerPlus" title="+15 s">+15</button>
+    <button id="timerStop" title="Arrêter">✕</button>
+  </div>`;
+  document.body.appendChild(bar);
+  document.getElementById("timerPlus").onclick=()=>addTime(15);
+  document.getElementById("timerStop").onclick=stopTimer;
+
   storeOK=storageAvailable();
   if(storeOK){ loadState(); } else { showBanner(); }
   render();
