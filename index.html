@@ -155,6 +155,14 @@
   .save-dot{font-size:12px;color:var(--muted);margin-left:auto}
   .banner{background:var(--danger-bg);color:var(--danger);font-size:13px;padding:8px 12px;border-radius:8px;margin:10px 0}
   .hidden{display:none}
+  .home-week{margin:16px 0 6px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .home-item{display:flex;flex-direction:column;align-items:flex-start;gap:3px;width:100%;text-align:left;padding:11px 13px;margin:8px 0;min-height:var(--tap);border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+  .home-item.done{border-color:var(--good)}
+  .home-item .hi-nm{font-weight:700;line-height:1.25}
+  .home-item .hi-meta{font-size:12.5px;color:var(--muted);font-family:var(--mono)}
+  .home-item .hi-meta .hi-ok{color:var(--good)}
+  .scope{display:flex;gap:8px;margin-bottom:10px}
+  .scope .btn{flex:1}
 </style>
 </head>
 
@@ -163,6 +171,7 @@
   <div class="topbar">
     <h1>Traqueur de séance · salle</h1>
     <div class="sessionbar">
+      <button class="btn icon ghost hidden" id="btnHome" title="Vue d'ensemble des séances">☰</button>
       <select class="sel" id="sessionSelect" aria-label="Choisir une séance"></select>
       <button class="btn icon" id="btnImport" title="Importer des séances">＋</button>
       <button class="btn icon ghost" id="btnMenu" title="Options">⋯</button>
@@ -204,7 +213,11 @@
 <div class="modal" id="exportModal">
   <div class="sheet">
     <h3>Coller dans l'onglet Training</h3>
-    <p>Lignes de la séance courante, séparées par des tabulations, dans l'ordre exact des colonnes de <b>plan.xlsx</b>. Copie, puis colle sous la dernière ligne du tableau Training.</p>
+    <p>Lignes séparées par des tabulations, dans l'ordre exact des colonnes de <b>plan.xlsx</b>. Copie, puis colle sous la dernière ligne du tableau Training.</p>
+    <div class="scope" id="exportScope">
+      <button class="btn" data-scope="current">Séance courante</button>
+      <button class="btn" data-scope="logged">Séances faites</button>
+    </div>
     <textarea id="exportText" readonly></textarea>
     <div class="msg" id="exportMsg"></div>
     <div class="actions">
@@ -334,7 +347,7 @@ const IMG_MAP = {
   "Sumo Squat": "Plie_Dumbbell_Squat/0.jpg"
 };
 
-let state = { sessions: [], activeId: null };
+let state = { sessions: [], activeId: null, view: "home" };
 let storeOK = true;
 let saveTimer = null;
 
@@ -481,6 +494,7 @@ function buildSession(obj){
     title:(obj.session||obj.title||"Séance").toString().trim(),
     date:(obj.date||today()).toString().trim(),
     type:(obj.type||"salle").toString().trim(),
+    week:(obj.week!=null && !isNaN(Number(obj.week)) ? Number(obj.week) : null),
     exercises:obj.exercises.map(normalizeExercise)
   };
 }
@@ -511,13 +525,61 @@ function rirZone(v, cuff){
 const app = document.getElementById("app");
 
 function render(){
+  renderTopbar();
   renderSessionSelect();
   renderMeta();
-  const s = activeSession();
   app.innerHTML = "";
-  if(!s){ renderEmpty(); updateProgress(); return; }
+  const s = activeSession();
+  if(state.view!=="session" || !s){ renderHome(); updateProgress(); return; }
   s.exercises.forEach((ex,i)=> app.appendChild(buildCard(ex,i)) );
   updateProgress();
+}
+
+function renderTopbar(){
+  const inSession = state.view==="session" && !!activeSession();
+  document.getElementById("btnHome").classList.toggle("hidden", !inSession);
+  document.getElementById("sessionSelect").classList.toggle("hidden", !inSession);
+}
+
+function goHome(){ state.view="home"; scheduleSave(); render(); }
+function openSession(id){ state.activeId=id; state.view="session"; scheduleSave(); render(); }
+
+function renderHome(){
+  if(state.sessions.length===0){ renderEmpty(); return; }
+  const host=document.createElement("div");
+
+  const groups=new Map();
+  state.sessions.forEach(s=>{
+    const k=(s.week!=null)?s.week:"—";
+    if(!groups.has(k)) groups.set(k,[]);
+    groups.get(k).push(s);
+  });
+  const keys=[...groups.keys()].sort((a,b)=>{
+    if(a==="—") return 1; if(b==="—") return -1; return a-b;
+  });
+
+  keys.forEach(k=>{
+    const h=document.createElement("div"); h.className="home-week";
+    h.textContent=(k==="—")?"Séances":("Semaine "+k);
+    host.appendChild(h);
+    groups.get(k).forEach(s=>{
+      const done=s.exercises.filter(e=>e.rir!=="").length;
+      const tot=s.exercises.length;
+      const item=document.createElement("button");
+      item.className="home-item"+(done===tot?" done":"");
+      item.innerHTML=`<span class="hi-nm">${escapeHtml(s.title)}</span>`
+        +`<span class="hi-meta">${s.date} · ${escapeHtml(s.type)} · `
+        +`<span class="${done===tot?"hi-ok":""}">${done}/${tot} encodés</span></span>`;
+      item.onclick=()=>openSession(s.id);
+      host.appendChild(item);
+    });
+  });
+
+  const act=document.createElement("div"); act.className="row"; act.style.margin="16px 0 4px";
+  act.innerHTML=`<button class="btn primary" id="homeImport">Importer des séances</button>`;
+  host.appendChild(act);
+  app.appendChild(host);
+  document.getElementById("homeImport").onclick=openImport;
 }
 
 function renderSessionSelect(){
@@ -532,7 +594,7 @@ function renderSessionSelect(){
 function renderMeta(){
   const bar = document.getElementById("metaBar");
   const s = activeSession();
-  if(!s){ bar.innerHTML=""; return; }
+  if(!s || state.view!=="session"){ bar.innerHTML=""; return; }
   bar.innerHTML = `
     <label>Date
       <input type="date" class="date" id="mDate" value="${s.date}">
@@ -827,7 +889,7 @@ function updateProgress(){
   const s=activeSession();
   const fill=document.getElementById("progFill");
   const lab=document.getElementById("progLab");
-  if(!s || s.exercises.length===0){ fill.style.width="0%"; lab.textContent="—"; return; }
+  if(state.view!=="session" || !s || s.exercises.length===0){ fill.style.width="0%"; lab.textContent="—"; return; }
   const done=s.exercises.filter(e=>e.rir!=="").length;
   const tot=s.exercises.length;
   fill.style.width=Math.round(done/tot*100)+"%";
@@ -835,14 +897,18 @@ function updateProgress(){
 }
 
 /* ---------- export vers Training (ordre = plan.xlsx) ---------- */
-function buildExportTSV(){
-  const s=activeSession(); if(!s) return "";
-  const rows=s.exercises.map(ex=>{
-    const exName = (ex.usedAlt && ex.alt && ex.alt.name) ? ex.alt.name : ex.name;
-    return [
-      s.date, exName, ex.serie, ex.reps, ex.charge, ex.paired, ex.rest,
-      ex.rir, ex.rpe, ex.pain, ex.painLoc, ex.obs, s.type
-    ].map(cellClean).join("\t");
+function isLogged(s){ return s.exercises.some(e=>e.rir!==""); }
+function buildExportTSV(sessions){
+  const list = sessions || [activeSession()].filter(Boolean);
+  const rows=[];
+  list.forEach(s=>{
+    s.exercises.forEach(ex=>{
+      const exName = (ex.usedAlt && ex.alt && ex.alt.name) ? ex.alt.name : ex.name;
+      rows.push([
+        s.date, exName, ex.serie, ex.reps, ex.charge, ex.paired, ex.rest,
+        ex.rir, ex.rpe, ex.pain, ex.painLoc, ex.obs, s.type
+      ].map(cellClean).join("\t"));
+    });
   });
   return rows.join("\n");
 }
@@ -867,6 +933,7 @@ function restoreFile(file){
     if(!obj || !Array.isArray(obj.sessions)){ alert("Ce n'est pas une sauvegarde valide (clé \"sessions\" absente)."); return; }
     if(!confirm("Restaurer remplacera les séances actuelles par celles de la sauvegarde. Continuer ?")) return;
     state=obj; if(!state.activeId && state.sessions[0]) state.activeId=state.sessions[0].id;
+    migrate(); state.view="home";
     doSave(); closeMenu(); render();
   };
   r.readAsText(file);
@@ -888,6 +955,7 @@ function doImport(){
   catch(e){ setMsg("importMsg",e.message,"err"); return; }
   sessions.forEach(s=>state.sessions.push(s));
   state.activeId=sessions[0].id;
+  state.view = sessions.length>1 ? "home" : "session";
   scheduleSave(); closeImport(); render();
 }
 
@@ -908,14 +976,34 @@ function loadExample(){
     }]
   };
   const sessions=buildSessions(ex); sessions.forEach(s=>state.sessions.push(s)); state.activeId=sessions[0].id;
+  state.view="session";
   scheduleSave(); closeImport(); render();
 }
 
+let exportScope = "current";
 function openExport(){
-  if(!activeSession()){ return; }
-  document.getElementById("exportText").value=buildExportTSV();
-  setMsg("exportMsg","Ordre des colonnes : "+TRAINING_COLS.join(" · "));
+  if(state.sessions.length===0){ return; }
+  if(!activeSession()) exportScope="logged";
+  setExportScope(exportScope);
   document.getElementById("exportModal").classList.add("open");
+}
+function setExportScope(scope){
+  exportScope = scope;
+  document.querySelectorAll("#exportScope .btn").forEach(b=>{
+    b.classList.toggle("primary", b.dataset.scope===scope);
+  });
+  let sessions, note;
+  if(scope==="logged"){
+    sessions = state.sessions.filter(isLogged);
+    note = sessions.length
+      ? sessions.length+" séance(s) faite(s). Ordre des colonnes : "+TRAINING_COLS.join(" · ")
+      : "Aucune séance ne comporte encore de RIR renseigné.";
+  } else {
+    sessions = [activeSession()].filter(Boolean);
+    note = (sessions.length?"Séance courante. ":"Aucune séance courante. ")+"Ordre des colonnes : "+TRAINING_COLS.join(" · ");
+  }
+  document.getElementById("exportText").value = buildExportTSV(sessions);
+  setMsg("exportMsg", note);
 }
 async function copyExport(){
   const t=document.getElementById("exportText").value;
@@ -936,7 +1024,7 @@ function dupSession(){
   copy.exercises.forEach(e=>{ e.rir="";e.rpe="";e.pain="";e.painLoc="";e.obs=""; e.usedAlt=false;
     e.serie=e.plannedSets; e.reps=e.plannedReps; e.charge=e.plannedCharge; e.paired=e.plannedPaired; });
   copy.title=s.title.replace(/\s·\s\d{4}-\d{2}-\d{2}$/,"");
-  state.sessions.push(copy); state.activeId=copy.id;
+  state.sessions.push(copy); state.activeId=copy.id; state.view="session";
   scheduleSave(); closeMenu(); render();
 }
 function deleteSession(){
@@ -944,17 +1032,34 @@ function deleteSession(){
   if(!confirm("Supprimer « "+s.title+" » et ses saisies ?"))return;
   state.sessions=state.sessions.filter(x=>x.id!==s.id);
   state.activeId=state.sessions.length?state.sessions[state.sessions.length-1].id:null;
+  state.view="home";
   scheduleSave(); closeMenu(); render();
 }
 function resetAll(){
   if(!confirm("Tout effacer : toutes les séances et saisies seront perdues. Continuer ?"))return;
-  state={sessions:[],activeId:null}; scheduleSave(); closeMenu(); render();
+  state={sessions:[],activeId:null,view:"home"}; scheduleSave(); closeMenu(); render();
 }
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
+/* Rétrocompat sauvegardes antérieures : champ view + numéro de semaine */
+function migrate(){
+  if(!state || typeof state!=="object") state={sessions:[],activeId:null,view:"home"};
+  if(!Array.isArray(state.sessions)) state.sessions=[];
+  if(!state.view) state.view = state.activeId ? "session" : "home";
+  state.sessions.forEach(s=>{
+    if(s.week===undefined) s.week=null;
+    if(s.week==null){
+      const m=/semaine\s*(\d+)/i.exec(s.title||"");
+      if(m) s.week=Number(m[1]);
+    }
+  });
+}
+
 /* wire up */
-document.getElementById("sessionSelect").addEventListener("change",e=>{ state.activeId=e.target.value; scheduleSave(); render(); });
+document.getElementById("sessionSelect").addEventListener("change",e=>{ openSession(e.target.value); });
+document.getElementById("btnHome").onclick=goHome;
+document.querySelectorAll("#exportScope .btn").forEach(b=>{ b.onclick=()=>setExportScope(b.dataset.scope); });
 document.getElementById("btnImport").onclick=openImport;
 document.getElementById("btnCloseImport").onclick=closeImport;
 document.getElementById("btnDoImport").onclick=doImport;
@@ -993,6 +1098,7 @@ document.getElementById("btnCloseInstall").onclick=()=>document.getElementById("
 
   storeOK=storageAvailable();
   if(storeOK){ loadState(); } else { showBanner(); }
+  migrate();
   render();
   setDot(storeOK?"Prêt":"Sauvegarde indisponible");
 })();
