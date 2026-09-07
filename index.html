@@ -96,6 +96,8 @@ textarea.paste{width:100%;min-height:120px;border:1px solid var(--line-strong);b
 .alt .an{font-weight:700}
 .alt .det{font-size:13px;color:var(--muted);margin-top:3px}
 .alt .det b{color:var(--ink);font-weight:600}
+.alt .intensity{font-family:var(--mono);font-size:13px;color:var(--accent);margin-top:4px;font-weight:700}
+.alt .intensity .est{color:var(--amber)}
 .alt .swap{margin-top:9px;min-height:38px;width:100%;border:1px solid var(--accent);background:var(--surface);color:var(--accent);border-radius:9px;font-weight:600;cursor:pointer}
 .alt .swap.on{background:var(--accent);color:#fff}
 .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
@@ -175,11 +177,7 @@ textarea.paste{width:100%;min-height:120px;border:1px solid var(--line-strong);b
 <div class="modal" id="importModal">
 <div class="sheet">
 <h3>Importer des séances</h3>
-<p>Deux méthodes au choix : <b>colle le bloc JSON</b> que Claude te donne en MODE SÉANCES (Output 3 f), <b>ou</b> importe directement le <b>fichier .json</b>. Il peut contenir <b>plusieurs séances</b> (le cycle complet) — elles seront toutes ajoutées.</p>
-<input type="file" id="importFile" accept="application/json,.json" class="hidden" />
-<div class="actions" style="margin:0 0 10px">
-<button class="btn" id="btnPickFile">📄 Importer un fichier .json</button>
-</div>
+<p>Colle le <b>bloc JSON</b> que Claude te donne en MODE SÉANCES (Output 3 f). Il peut contenir <b>plusieurs séances</b> d'un coup — elles seront toutes ajoutées.</p>
 <textarea id="importText" placeholder='{ "sessions": [ { "session": "Séance 1", "exercises": [ ... ] }, ... ] }'></textarea>
 <div class="msg" id="importMsg"></div>
 <div class="actions">
@@ -367,6 +365,31 @@ function activeSession(){ return state.sessions.find(s=>s.id===state.activeId) |
 function imgUrlFor(name){ const p=IMG_MAP[name]; return p ? IMG_BASE+p : null; }
 function currentName(ex){ return (ex.usedAlt && ex.alt && ex.alt.name) ? ex.alt.name : ex.name; }
 
+/* v9 — l'alternative est une AUTRE machine : reps, RIR et charge lui sont propres.
+   plannedView() renvoie la prescription active (principal, ou alt si usedAlt),
+   en retombant sur le principal pour un champ que l'alt ne fournirait pas. */
+function altActive(ex){ return !!(ex.usedAlt && ex.alt); }
+function plannedView(ex){
+const a=altActive(ex);
+return {
+sets: ex.plannedSets,
+reps: (a && ex.alt.reps) ? ex.alt.reps : ex.plannedReps,
+charge: (a && ex.alt.chargeEstimate) ? ex.alt.chargeEstimate : ex.plannedCharge,
+rest: ex.rest,
+rirTarget: (a && ex.alt.rirTarget) ? ex.alt.rirTarget : ex.rirTarget,
+estimated: !!(a && ex.alt.chargeSource==="estimée" && ex.alt.chargeEstimate)
+};
+}
+/* "2×12" -> {charge:"12",paired:2} ; "24" -> {charge:"24",paired:null} ; "élastique" -> {charge:"",paired:null} */
+function parseCharge(s){
+s=String(s||"").trim(); if(!s) return {charge:"",paired:null};
+let paired=null, charge=s;
+const m=s.match(/^(\d+)\s*[×xX*]\s*([\d.,]+)/);
+if(m){ paired=Number(m[1]); charge=m[2]; }
+charge=charge.replace(",",".").replace(/[^\d.]/g,"");
+return { charge:charge, paired:paired };
+}
+
 /* ---------- Minuteur (repos + maintien) ---------- */
 const timer = { intId:null, endAt:0, label:"", ctx:null, wake:null, doneTO:null };
 function fmtT(s){ s=Math.max(0,Math.round(s)); const m=Math.floor(s/60), r=s%60; return m+":"+String(r).padStart(2,"0"); }
@@ -435,9 +458,19 @@ if(!v) return [];
 if(Array.isArray(v)) return v.map(s=>String(s).replace(/^[-•\s]+/,"").trim()).filter(Boolean);
 return String(v).split(/\r?\n/).map(s=>s.replace(/^[-•\s]+/,"").trim()).filter(Boolean);
 }
+/* v9 — conserve l'intensité propre de l'alternative (reps, RIR, charge estimée + source).
+   Rétrocompatible : une alt v7/v8 (name/setup/note) reste valide, ces champs restent vides. */
 function normalizeAlt(a){
 if(!a || !a.name) return null;
-return { name:String(a.name).trim(), setup:(a.setup||"").trim(), note:(a.note||"").trim() };
+return {
+name:String(a.name).trim(),
+setup:(a.setup||"").trim(),
+note:(a.note||"").trim(),
+reps:(a.reps!=null?String(a.reps):"").trim(),
+rirTarget:(a.rirTarget!=null?String(a.rirTarget):"").trim(),
+chargeEstimate:(a.chargeEstimate!=null?String(a.chargeEstimate):"").trim(),
+chargeSource:(a.chargeSource||"").trim()
+};
 }
 function normalizeExercise(x){
 return {
@@ -561,7 +594,7 @@ wrap.innerHTML='<div class="eximg-none">illustration indisponible</div>';
 return wrap;
 }
 
-function buildCard(ex, idx){
+function buildCard(ex, idx, keepOpen){
 const card=document.createElement("div");
 card.className="card"+(ex.rir!==""?" done":"");
 const head=document.createElement("div");
@@ -588,12 +621,14 @@ const body=document.createElement("div");
 body.className="card-body";
 card.appendChild(body);
 
+const pv=plannedView(ex);
+
 const presc=document.createElement("div");
 presc.className="prescrip";
-presc.innerHTML=`<span class="k">prescrit</span> ${escapeHtml(ex.plannedSets||"?")}×${escapeHtml(ex.plannedReps||"?")}`
-+ (ex.plannedCharge?` @ ${escapeHtml(ex.plannedCharge)} kg`:"")
-+ (ex.rest?` &nbsp;·&nbsp; <span class="k">repos</span> ${escapeHtml(ex.rest)}s`:"")
-+ (ex.rirTarget?` &nbsp;·&nbsp; <span class="k">RIR cible</span> ${escapeHtml(ex.rirTarget)}`:"");
+presc.innerHTML=`<span class="k">prescrit</span> ${escapeHtml(pv.sets||"?")}×${escapeHtml(pv.reps||"?")}`
++ (pv.charge?` @ ${escapeHtml(pv.charge)} kg${pv.estimated?' <span class="k">(estimée)</span>':""}`:"")
++ (pv.rest?` &nbsp;·&nbsp; <span class="k">repos</span> ${escapeHtml(pv.rest)}s`:"")
++ (pv.rirTarget?` &nbsp;·&nbsp; <span class="k">RIR cible</span> ${escapeHtml(pv.rirTarget)}`:"");
 body.appendChild(presc);
 
 /* minuteurs : repos (chaque exo) + maintien (exos au temps) */
@@ -641,20 +676,36 @@ ex.execution.forEach(step=>{ const li=document.createElement("li"); li.textConte
 g.appendChild(ul); body.appendChild(g);
 }
 
-/* bloc alternative en salle (machine prise) */
+/* bloc alternative en salle (machine prise) — v9 : porte sa propre intensité */
 if(ex.alt){
 const a=document.createElement("div"); a.className="alt";
+const det=[];
+if(ex.alt.reps) det.push(`${escapeHtml(ex.alt.reps)} reps`);
+if(ex.alt.rirTarget) det.push(`RIR ${escapeHtml(ex.alt.rirTarget)}`);
+let chargeBit="";
+if(ex.alt.chargeEstimate){
+const src=ex.alt.chargeSource==="estimée"?' <span class="est">(estimée)</span>':(ex.alt.chargeSource?` (${escapeHtml(ex.alt.chargeSource)})`:"");
+chargeBit=`~${escapeHtml(ex.alt.chargeEstimate)} kg${src}`;
+}
 a.innerHTML=`<div class="lead">Alternative en salle · machine prise</div>
 <div class="an">${escapeHtml(ex.alt.name)}</div>`
++ (det.length||chargeBit?`<div class="intensity">${[det.join(" · "),chargeBit].filter(Boolean).join(" · ")}</div>`:"")
 + (ex.alt.setup?`<div class="det"><b>Setup&nbsp;:</b> ${escapeHtml(ex.alt.setup)}</div>`:"")
 + (ex.alt.note?`<div class="det">${escapeHtml(ex.alt.note)}</div>`:"");
 const btn=document.createElement("button"); btn.className="swap"+(ex.usedAlt?" on":"");
 btn.textContent=ex.usedAlt?"Alternative en cours — revenir à l'exercice prévu":"J'ai fait l'alternative";
 btn.onclick=()=>{
 ex.usedAlt=!ex.usedAlt;
-btn.classList.toggle("on",ex.usedAlt);
-btn.textContent=ex.usedAlt?"Alternative en cours — revenir à l'exercice prévu":"J'ai fait l'alternative";
-paintHeadName(); refreshImage(); refreshSummary(); scheduleSave();
+/* l'alternative est une autre machine : on repointe la prescription ET on pré-remplit
+   la charge/paired/reps sur les valeurs propres de la vue active (à ajuster ensuite). */
+const v=plannedView(ex);
+const pc=parseCharge(v.charge);
+if(pc.charge!=="") ex.charge=pc.charge;
+if(pc.paired) ex.paired=pc.paired;
+if(v.reps) ex.reps=v.reps;
+scheduleSave();
+const fresh=buildCard(ex, idx, true);
+card.replaceWith(fresh);
 };
 a.appendChild(btn); body.appendChild(a);
 }
@@ -667,7 +718,7 @@ grid.appendChild(fieldPaired(ex, ()=>onEditText()));
 
 const hero=document.createElement("div"); hero.className="hero"; body.appendChild(hero);
 const hlbl=document.createElement("div"); hlbl.className="lbl";
-hlbl.innerHTML=`<span class="t">RIR — reps en réserve</span><span class="cible">${ex.rirTarget?("cible "+escapeHtml(ex.rirTarget)):""}</span>`;
+hlbl.innerHTML=`<span class="t">RIR — reps en réserve</span><span class="cible">${pv.rirTarget?("cible "+escapeHtml(pv.rirTarget)):""}</span>`;
 hero.appendChild(hlbl);
 const rirChips=document.createElement("div"); rirChips.className="chips rir"; hero.appendChild(rirChips);
 const rirHint=document.createElement("div"); rirHint.className="hint"; hero.appendChild(rirHint);
@@ -739,9 +790,14 @@ sum.classList.toggle("hidden",!collapsed);
 head.querySelector(".chev").textContent=collapsed?"▸":"▾";
 if(collapsed) refreshSummary();
 });
-// Replié par défaut : liste compacte, chaque exercice se déplie au tap.
-body.classList.add("hidden"); sum.classList.remove("hidden"); head.querySelector(".chev").textContent="▸"; refreshSummary();
 
+// Replié par défaut : liste compacte, chaque exercice se déplie au tap.
+// keepOpen=true après un swap d'alternative, pour rester sur l'exercice en cours.
+if(keepOpen){
+body.classList.remove("hidden"); sum.classList.add("hidden"); head.querySelector(".chev").textContent="▾";
+}else{
+body.classList.add("hidden"); sum.classList.remove("hidden"); head.querySelector(".chev").textContent="▸"; refreshSummary();
+}
 return card;
 }
 
@@ -860,17 +916,9 @@ r.readAsText(file);
 function openImport(){ document.getElementById("importText").value=""; setMsg("importMsg",""); document.getElementById("importModal").classList.add("open"); }
 function closeImport(){ document.getElementById("importModal").classList.remove("open"); }
 function setMsg(id,txt,cls){ const e=document.getElementById(id); e.textContent=txt||""; e.className="msg"+(cls?" "+cls:""); }
-
-/* enlève un éventuel bloc markdown ```json ... ``` autour du contenu */
-function stripFences(t){
-t=(t||"").trim();
-const m=t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-return m ? m[1].trim() : t;
-}
-/* parse + validation + ajout des séances — partagé entre le coller et le fichier */
-function importFromRaw(raw){
-raw=stripFences(raw);
-if(!raw){ setMsg("importMsg","Colle le bloc JSON ou choisis un fichier .json.","err"); return; }
+function doImport(){
+const raw=document.getElementById("importText").value.trim();
+if(!raw){ setMsg("importMsg","Colle d'abord le bloc JSON.","err"); return; }
 let obj;
 try{ obj=JSON.parse(raw); }
 catch(e){ setMsg("importMsg","JSON invalide : "+e.message,"err"); return; }
@@ -881,27 +929,17 @@ sessions.forEach(s=>state.sessions.push(s));
 state.activeId=sessions[0].id;
 scheduleSave(); closeImport(); render();
 }
-function doImport(){ importFromRaw(document.getElementById("importText").value); }
-/* import direct d'un fichier .json (le fichier généré par le prompt) */
-function importFile(file){
-if(!file) return;
-const r=new FileReader();
-r.onload=()=>{ document.getElementById("importText").value=r.result; importFromRaw(r.result); };
-r.onerror=()=>setMsg("importMsg","Lecture du fichier impossible.","err");
-r.readAsText(file);
-}
-
 function loadExample(){
 const ex = {
 "sessions":[{
 "session":"Exemple — Full body A (à remplacer)",
 "date":today(),"type":"salle",
 "exercises":[
-{"name":"Barbell Back Squat","sets":3,"reps":"5-8","charge":"60","paired":1,"rest":150,"setup":"Cage à squat, barre olympique 20 kg","divers":"Descente contrôlée, gainage","rirTarget":"2-3","execution":["Barre sur le haut des trapèzes, mains un peu plus larges que les épaules.","Pieds largeur d'épaules, pointes légèrement ouvertes ; gaine avant de descendre.","Pousse les hanches en arrière et fléchis les genoux dans l'axe des pieds.","Descends jusqu'à cuisses parallèles au sol (ou plus bas sans arrondir le bas du dos).","Remonte en poussant dans les talons, sans verrouiller brutalement les genoux."],"alt":{"name":"Leg Press","setup":"Machine leg press, pieds mi-hauteur","note":"si le rack est pris"}},
-{"name":"Flat Barbell Bench Press","sets":3,"reps":"5-8","charge":"50","paired":1,"rest":150,"setup":"Banc plat, pareur conseillé","divers":"Omoplates serrées","rirTarget":"2-3","alt":{"name":"Machine Chest Press","setup":"Siège réglé, poignées à mi-poitrine","note":"si le banc est pris"}},
-{"name":"Lat Pulldown","sets":3,"reps":"8-12","charge":"55","paired":1,"rest":120,"setup":"Poulie haute, barre large","divers":"Tire vers le haut du sternum","rirTarget":"1-2","alt":{"name":"Seated Cable Row","setup":"Poulie basse, poignée neutre","note":"si la tour est prise"}},
-{"name":"Machine Shoulder Press","sets":2,"reps":"6-10","charge":"30","paired":1,"rest":120,"setup":"Siège réglé","divers":"Amplitude sans douleur","rirTarget":"2-3","warn":true,"alt":{"name":"Standing Dumbbell Overhead Press","setup":"Haltères, gainage","note":"si la machine est prise"}},
-{"name":"Dumbbell Lateral Raise","sets":3,"reps":"12-15","charge":"7.5","paired":2,"rest":75,"setup":"Debout, léger buste en avant","divers":"Monte à l'horizontale","rirTarget":"0-2","alt":{"name":"Cable Lateral Raise","setup":"Poulie basse, une main","note":"si besoin de tension constante"}},
+{"name":"Barbell Back Squat","sets":3,"reps":"5-8","charge":"60","paired":1,"rest":150,"setup":"Cage à squat, barre olympique 20 kg","divers":"Descente contrôlée, gainage","rirTarget":"2-3","execution":["Barre sur le haut des trapèzes, mains un peu plus larges que les épaules.","Pieds largeur d'épaules, pointes légèrement ouvertes ; gaine avant de descendre.","Pousse les hanches en arrière et fléchis les genoux dans l'axe des pieds.","Descends jusqu'à cuisses parallèles au sol (ou plus bas sans arrondir le bas du dos).","Remonte en poussant dans les talons, sans verrouiller brutalement les genoux."],"alt":{"name":"Leg Press","setup":"Machine leg press, pieds mi-hauteur","reps":"8-10","rirTarget":"2-3","chargeEstimate":"100","chargeSource":"estimée","note":"si le rack est pris — caler au RIR cible dès la 1ère série, loguer sa propre ligne"}},
+{"name":"Flat Barbell Bench Press","sets":3,"reps":"5-8","charge":"50","paired":1,"rest":150,"setup":"Banc plat, pareur conseillé","divers":"Omoplates serrées","rirTarget":"2-3","alt":{"name":"Machine Chest Press","setup":"Siège réglé, poignées à mi-poitrine","reps":"6-8","rirTarget":"2-3","chargeEstimate":"35","chargeSource":"estimée","note":"si le banc est pris"}},
+{"name":"Lat Pulldown","sets":3,"reps":"8-12","charge":"55","paired":1,"rest":120,"setup":"Poulie haute, barre large","divers":"Tire vers le haut du sternum","rirTarget":"1-2","alt":{"name":"Seated Cable Row","setup":"Poulie basse, poignée neutre","reps":"8-10","rirTarget":"2","chargeEstimate":"45","chargeSource":"historique","note":"si la tour est prise"}},
+{"name":"Machine Shoulder Press","sets":2,"reps":"6-10","charge":"30","paired":1,"rest":120,"setup":"Siège réglé","divers":"Amplitude sans douleur","rirTarget":"2-3","warn":true,"alt":{"name":"Standing Dumbbell Overhead Press","setup":"Haltères, gainage","reps":"6-8","rirTarget":"2-3","chargeEstimate":"2×12","chargeSource":"estimée","note":"si la machine est prise"}},
+{"name":"Dumbbell Lateral Raise","sets":3,"reps":"12-15","charge":"7.5","paired":2,"rest":75,"setup":"Debout, léger buste en avant","divers":"Monte à l'horizontale","rirTarget":"0-2","alt":{"name":"Cable Lateral Raise","setup":"Poulie basse, une main","reps":"12-15","rirTarget":"1-2","chargeEstimate":"6.8","chargeSource":"estimée","note":"si besoin de tension constante"}},
 {"name":"Band Face Pull","sets":3,"reps":"15-20","charge":"0","paired":1,"rest":60,"setup":"Bande à hauteur du visage","divers":"Rotation externe en fin","rirTarget":"3-4","cuff":true,"execution":["Bande ancrée à hauteur des yeux, une extrémité dans chaque main, bras tendus.","Tire vers le front en écartant les mains, coudes hauts et vers l'extérieur.","Termine par une rotation externe des épaules (pouces vers l'arrière).","Mouvement lent et contrôlé, jamais jusqu'à l'échec : c'est un exercice de coiffe."]},
 {"name":"Band External Rotation","sets":2,"reps":"15-20","charge":"0","paired":1,"rest":45,"setup":"Coude au corps, bande légère","divers":"Mouvement lent, jamais à l'échec","rirTarget":"3-4","cuff":true}
 ]
@@ -910,7 +948,6 @@ const ex = {
 const sessions=buildSessions(ex); sessions.forEach(s=>state.sessions.push(s)); state.activeId=sessions[0].id;
 scheduleSave(); closeImport(); render();
 }
-
 function openExport(){
 if(!activeSession()){ return; }
 document.getElementById("exportText").value=buildExportTSV();
@@ -950,7 +987,6 @@ function resetAll(){
 if(!confirm("Tout effacer : toutes les séances et saisies seront perdues. Continuer ?"))return;
 state={sessions:[],activeId:null}; scheduleSave(); closeMenu(); render();
 }
-
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 /* wire up */
@@ -958,8 +994,6 @@ document.getElementById("sessionSelect").addEventListener("change",e=>{ state.ac
 document.getElementById("btnImport").onclick=openImport;
 document.getElementById("btnCloseImport").onclick=closeImport;
 document.getElementById("btnDoImport").onclick=doImport;
-document.getElementById("btnPickFile").onclick=()=>document.getElementById("importFile").click();
-document.getElementById("importFile").addEventListener("change",e=>{ if(e.target.files[0]) importFile(e.target.files[0]); e.target.value=""; });
 document.getElementById("btnLoadExample").onclick=loadExample;
 document.getElementById("btnExport").onclick=openExport;
 document.getElementById("btnCloseExport").onclick=()=>document.getElementById("exportModal").classList.remove("open");
