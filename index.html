@@ -146,6 +146,16 @@ textarea.paste{width:100%;min-height:120px;border:1px solid var(--line-strong);b
 .save-dot{font-size:12px;color:var(--muted);margin-left:auto}
 .banner{background:var(--danger-bg);color:var(--danger);font-size:13px;padding:8px 12px;border-radius:8px;margin:10px 0}
 .hidden{display:none}
+.home-list{margin:10px 0}
+.home-item{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin:8px 0;display:flex;align-items:center;gap:10px;cursor:pointer}
+.home-item:active{transform:translateY(1px)}
+.home-item .mark{width:24px;height:24px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:0 0 auto}
+.home-item .mark.on{background:var(--good);color:#fff}
+.home-item .mark.off{background:var(--line);color:var(--muted)}
+.home-item .info{flex:1 1 auto;min-width:0}
+.home-item .info .t{font-weight:700;line-height:1.25}
+.home-item .info .d{font-size:12.5px;color:var(--muted);margin-top:2px}
+.home-item .chev{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -153,6 +163,7 @@ textarea.paste{width:100%;min-height:120px;border:1px solid var(--line-strong);b
 <div class="topbar">
 <h1>Traqueur de séance · salle</h1>
 <div class="sessionbar">
+<button class="btn icon ghost" id="btnHome" title="Accueil">🏠</button>
 <select class="sel" id="sessionSelect" aria-label="Choisir une séance"></select>
 <button class="btn icon" id="btnImport" title="Importer des séances">＋</button>
 <button class="btn icon ghost" id="btnMenu" title="Options">⋯</button>
@@ -192,7 +203,7 @@ textarea.paste{width:100%;min-height:120px;border:1px solid var(--line-strong);b
 <div class="modal" id="exportModal">
 <div class="sheet">
 <h3>Coller dans l'onglet Training</h3>
-<p>Lignes de la séance courante, séparées par des tabulations, dans l'ordre exact des colonnes de <b>plan.xlsx</b>. Copie, puis colle sous la dernière ligne du tableau Training.</p>
+<p>Lignes de la ou des séance(s) exportée(s), séparées par des tabulations, dans l'ordre exact des colonnes de <b>plan.xlsx</b>. Copie, puis colle sous la dernière ligne du tableau Training.</p>
 <textarea id="exportText" readonly></textarea>
 <div class="msg" id="exportMsg"></div>
 <div class="actions">
@@ -321,7 +332,7 @@ const IMG_MAP = {
 "Sumo Squat": "Plie_Dumbbell_Squat/0.jpg"
 };
 
-let state = { sessions: [], activeId: null };
+let state = { sessions: [], activeId: null, view: "home" };
 let storeOK = true;
 let saveTimer = null;
 
@@ -340,6 +351,8 @@ catch(e){ return false; }
 function loadState(){
 try{ const raw=localStorage.getItem(LS_KEY); if(raw) state=JSON.parse(raw); }
 catch(e){/* première utilisation */}
+/* Compat : anciennes sauvegardes sans "view". On respecte une séance déjà active, sinon accueil. */
+if(!state.view) state.view = (state.activeId && state.sessions && state.sessions.length) ? "session" : "home";
 }
 function scheduleSave(){
 clearTimeout(saveTimer);
@@ -364,6 +377,7 @@ function today(){ const d=new Date(); const p=n=>String(n).padStart(2,"0"); retu
 function activeSession(){ return state.sessions.find(s=>s.id===state.activeId) || null; }
 function imgUrlFor(name){ const p=IMG_MAP[name]; return p ? IMG_BASE+p : null; }
 function currentName(ex){ return (ex.usedAlt && ex.alt && ex.alt.name) ? ex.alt.name : ex.name; }
+function sessionIsDone(s){ return s.exercises.some(e=>e.rir!==""); }
 
 /* v9 — l'alternative est une AUTRE machine : reps, RIR et charge lui sont propres.
    plannedView() renvoie la prescription active (principal, ou alt si usedAlt),
@@ -531,12 +545,33 @@ return {cls:"danger", hint:"déficit de charge — durcis la variante ou charge"
 
 /* ---------- render ---------- */
 const app = document.getElementById("app");
+function applyViewChrome(){
+const view = state.view || "home";
+const home = document.getElementById("btnHome");
+const sel = document.getElementById("sessionSelect");
+const meta = document.getElementById("metaBar");
+const footer = document.querySelector(".footer");
+const title = document.querySelector(".topbar h1");
+if(home) home.style.display = view==="session" ? "" : "none";
+if(sel) sel.style.display = view==="session" ? "" : "none";
+if(meta) meta.style.display = view==="session" ? "" : "none";
+if(footer) footer.style.display = view==="session" ? "" : "none";
+if(title) title.textContent = view==="session" ? "Traqueur de séance · salle" : "Traqueur de séance · accueil";
+}
+function goHome(){ state.view="home"; scheduleSave(); render(); }
 function render(){
 renderSessionSelect();
 renderMeta();
-const s = activeSession();
+applyViewChrome();
 app.innerHTML = "";
-if(!s){ renderEmpty(); updateProgress(); return; }
+const view = state.view || "home";
+if(view!=="session"){
+renderHome();
+updateProgress();
+return;
+}
+const s = activeSession();
+if(!s){ state.view="home"; applyViewChrome(); renderHome(); updateProgress(); return; }
 s.exercises.forEach((ex,i)=> app.appendChild(buildCard(ex,i)) );
 updateProgress();
 }
@@ -544,9 +579,10 @@ function renderSessionSelect(){
 const sel = document.getElementById("sessionSelect");
 if(state.sessions.length===0){ sel.innerHTML='<option>Aucune séance</option>'; sel.disabled=true; return; }
 sel.disabled=false;
-sel.innerHTML = state.sessions.map(s=>
-`<option value="${s.id}" ${s.id===state.activeId?"selected":""}>${escapeHtml(s.title)} · ${s.date}</option>`
-).join("");
+sel.innerHTML = state.sessions.map(s=>{
+const mark = sessionIsDone(s) ? "✅ " : "";
+return `<option value="${s.id}" ${s.id===state.activeId?"selected":""}>${mark}${escapeHtml(s.title)} · ${s.date}</option>`;
+}).join("");
 }
 function renderMeta(){
 const bar = document.getElementById("metaBar");
@@ -576,6 +612,44 @@ d.innerHTML=`<h2>Aucune séance chargée</h2>
 app.appendChild(d);
 document.getElementById("emptyImport").onclick=openImport;
 document.getElementById("emptyExample").onclick=loadExample;
+}
+
+function renderHome(){
+const total = state.sessions.length;
+const doneCount = state.sessions.filter(sessionIsDone).length;
+
+const head=document.createElement("div"); head.className="panel";
+head.innerHTML = `<h2>Mes séances</h2>` + (total
+? `<p>${doneCount} séance(s) effectuée(s) (au moins un exercice encodé) sur ${total}.</p>`
+: `<p>Aucune séance importée pour l'instant. Importe le bloc JSON que Claude te donne (une ou plusieurs séances), ou charge un exemple pour voir comment ça marche.</p>`);
+app.appendChild(head);
+
+if(total){
+const list=document.createElement("div"); list.className="home-list";
+state.sessions.forEach(s=>{
+const done=sessionIsDone(s);
+const row=document.createElement("div"); row.className="home-item";
+row.innerHTML = `<span class="mark ${done?"on":"off"}" title="${done?"Séance effectuée":"Séance non commencée"}">${done?"✓":"·"}</span>
+<span class="info"><span class="t"></span><span class="d"></span></span>
+<span class="chev">›</span>`;
+row.querySelector(".t").textContent = s.title || "(sans titre)";
+row.querySelector(".d").textContent = `${s.date} · ${s.type}`;
+row.addEventListener("click", ()=>{ state.activeId=s.id; state.view="session"; scheduleSave(); render(); });
+list.appendChild(row);
+});
+app.appendChild(list);
+}
+
+const actions=document.createElement("div"); actions.className="panel";
+actions.innerHTML = `<div class="row">
+<button class="btn primary" id="homeImport">Importer des séances</button>
+<button class="btn ghost" id="homeExample">Charger un exemple</button>
+<button class="btn ghost" id="homeExportAll">Exporter les séances effectuées</button>
+</div>`;
+app.appendChild(actions);
+document.getElementById("homeImport").onclick=openImport;
+document.getElementById("homeExample").onclick=loadExample;
+document.getElementById("homeExportAll").onclick=openExportAll;
 }
 
 /* ---------- image d'un exercice ---------- */
@@ -875,8 +949,8 @@ lab.textContent=`${done}/${tot} exercices encodés (RIR renseigné)`;
 }
 
 /* ---------- export vers Training (ordre = plan.xlsx) ---------- */
-function buildExportTSV(){
-const s=activeSession(); if(!s) return "";
+function buildExportTSV(sessionArg){
+const s = sessionArg || activeSession(); if(!s) return "";
 const rows=s.exercises.map(ex=>{
 const exName = (ex.usedAlt && ex.alt && ex.alt.name) ? ex.alt.name : ex.name;
 return [
@@ -885,6 +959,10 @@ ex.rir, ex.rpe, ex.pain, ex.painLoc, ex.obs, s.type
 ].map(cellClean).join("\t");
 });
 return rows.join("\n");
+}
+function buildExportAllTSV(){
+const done = state.sessions.filter(sessionIsDone);
+return done.map(s=>buildExportTSV(s)).filter(Boolean).join("\n");
 }
 function cellClean(v){ if(v===null||v===undefined) return ""; return String(v).replace(/\t/g," ").replace(/\r?\n/g," "); }
 
@@ -907,6 +985,7 @@ catch(e){ alert("Fichier illisible : "+e.message); return; }
 if(!obj || !Array.isArray(obj.sessions)){ alert("Ce n'est pas une sauvegarde valide (clé \"sessions\" absente)."); return; }
 if(!confirm("Restaurer remplacera les séances actuelles par celles de la sauvegarde. Continuer ?")) return;
 state=obj; if(!state.activeId && state.sessions[0]) state.activeId=state.sessions[0].id;
+if(!state.view) state.view = state.activeId ? "session" : "home";
 doSave(); closeMenu(); render();
 };
 r.readAsText(file);
@@ -927,6 +1006,7 @@ try{ sessions=buildSessions(obj); }
 catch(e){ setMsg("importMsg",e.message,"err"); return; }
 sessions.forEach(s=>state.sessions.push(s));
 state.activeId=sessions[0].id;
+state.view="session";
 scheduleSave(); closeImport(); render();
 }
 function loadExample(){
@@ -946,12 +1026,24 @@ const ex = {
 }]
 };
 const sessions=buildSessions(ex); sessions.forEach(s=>state.sessions.push(s)); state.activeId=sessions[0].id;
+state.view="session";
 scheduleSave(); closeImport(); render();
 }
 function openExport(){
 if(!activeSession()){ return; }
 document.getElementById("exportText").value=buildExportTSV();
 setMsg("exportMsg","Ordre des colonnes : "+TRAINING_COLS.join(" · "));
+document.getElementById("exportModal").classList.add("open");
+}
+function openExportAll(){
+const done = state.sessions.filter(sessionIsDone);
+document.getElementById("exportText").value = buildExportAllTSV();
+if(done.length===0){
+setMsg("exportMsg","Aucune séance effectuée pour l'instant (aucun exercice avec un RIR renseigné).","err");
+}else{
+const nbLignes = done.reduce((n,s)=>n+s.exercises.length,0);
+setMsg("exportMsg", `Ordre des colonnes : ${TRAINING_COLS.join(" · ")} — ${done.length} séance(s) effectuée(s) sur ${state.sessions.length} (${nbLignes} lignes).`);
+}
 document.getElementById("exportModal").classList.add("open");
 }
 async function copyExport(){
@@ -974,23 +1066,26 @@ copy.exercises.forEach(e=>{ e.rir="";e.rpe="";e.pain="";e.painLoc="";e.obs=""; e
 e.serie=e.plannedSets; e.reps=e.plannedReps; e.charge=e.plannedCharge; e.paired=e.plannedPaired; });
 copy.title=s.title.replace(/\s·\s\d{4}-\d{2}-\d{2}$/,"");
 state.sessions.push(copy); state.activeId=copy.id;
+state.view="session";
 scheduleSave(); closeMenu(); render();
 }
 function deleteSession(){
 const s=activeSession(); if(!s)return;
 if(!confirm("Supprimer « "+s.title+" » et ses saisies ?"))return;
 state.sessions=state.sessions.filter(x=>x.id!==s.id);
-state.activeId=state.sessions.length?state.sessions[state.sessions.length-1].id:null;
+state.activeId=null;
+state.view="home";
 scheduleSave(); closeMenu(); render();
 }
 function resetAll(){
 if(!confirm("Tout effacer : toutes les séances et saisies seront perdues. Continuer ?"))return;
-state={sessions:[],activeId:null}; scheduleSave(); closeMenu(); render();
+state={sessions:[],activeId:null,view:"home"}; scheduleSave(); closeMenu(); render();
 }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 /* wire up */
-document.getElementById("sessionSelect").addEventListener("change",e=>{ state.activeId=e.target.value; scheduleSave(); render(); });
+document.getElementById("sessionSelect").addEventListener("change",e=>{ state.activeId=e.target.value; state.view="session"; scheduleSave(); render(); });
+document.getElementById("btnHome").onclick=goHome;
 document.getElementById("btnImport").onclick=openImport;
 document.getElementById("btnCloseImport").onclick=closeImport;
 document.getElementById("btnDoImport").onclick=doImport;
