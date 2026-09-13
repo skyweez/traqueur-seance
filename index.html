@@ -188,7 +188,11 @@ textarea.paste{width:100%;min-height:120px;border:1px solid var(--line-strong);b
 <div class="modal" id="importModal">
 <div class="sheet">
 <h3>Importer des séances</h3>
-<p>Colle le <b>bloc JSON</b> que Claude te donne en MODE SÉANCES (Output 3 f). Il peut contenir <b>plusieurs séances</b> d'un coup — elles seront toutes ajoutées.</p>
+<p>Colle le <b>bloc JSON</b> que Claude te donne en MODE SÉANCES (Output 3 f), ou charge directement le <b>fichier .json</b> qu'il t'a donné à télécharger. Il peut contenir <b>plusieurs séances</b> d'un coup — elles seront toutes ajoutées.</p>
+<div class="actions" style="margin-bottom:10px">
+<button class="btn ghost" id="btnImportFile">📄 Charger un fichier .json</button>
+<input type="file" id="importFileInput" accept="application/json,.json" class="hidden" />
+</div>
 <textarea id="importText" placeholder='{ "sessions": [ { "session": "Séance 1", "exercises": [ ... ] }, ... ] }'></textarea>
 <div class="msg" id="importMsg"></div>
 <div class="actions">
@@ -991,6 +995,22 @@ doSave(); closeMenu(); render();
 r.readAsText(file);
 }
 
+/* ---------- import depuis un fichier .json (même chemin que le collage texte) ---------- */
+function importFromFile(file){
+if(!file) return;
+if(!/\.json$/i.test(file.name) && file.type!=="application/json"){
+setMsg("importMsg","Choisis un fichier .json.","err"); return;
+}
+const r=new FileReader();
+r.onload=()=>{
+document.getElementById("importText").value=String(r.result);
+setMsg("importMsg","Fichier chargé : "+file.name,"ok");
+doImport();
+};
+r.onerror=()=>{ setMsg("importMsg","Impossible de lire ce fichier.","err"); };
+r.readAsText(file);
+}
+
 /* ---------- events ---------- */
 function openImport(){ document.getElementById("importText").value=""; setMsg("importMsg",""); document.getElementById("importModal").classList.add("open"); }
 function closeImport(){ document.getElementById("importModal").classList.remove("open"); }
@@ -1090,6 +1110,11 @@ document.getElementById("btnImport").onclick=openImport;
 document.getElementById("btnCloseImport").onclick=closeImport;
 document.getElementById("btnDoImport").onclick=doImport;
 document.getElementById("btnLoadExample").onclick=loadExample;
+document.getElementById("btnImportFile").onclick=()=>document.getElementById("importFileInput").click();
+document.getElementById("importFileInput").addEventListener("change",e=>{
+if(e.target.files[0]) importFromFile(e.target.files[0]);
+e.target.value="";
+});
 document.getElementById("btnExport").onclick=openExport;
 document.getElementById("btnCloseExport").onclick=()=>document.getElementById("exportModal").classList.remove("open");
 document.getElementById("btnCopy").onclick=copyExport;
