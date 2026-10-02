@@ -153,9 +153,18 @@ textarea.paste{width:100%;min-height:120px;border:1px solid var(--line-strong);b
 .home-item .mark.on{background:var(--good);color:#fff}
 .home-item .mark.off{background:var(--line);color:var(--muted)}
 .home-item .info{flex:1 1 auto;min-width:0}
+.home-item .info .t,.home-item .info .d{display:block}
 .home-item .info .t{font-weight:700;line-height:1.25}
 .home-item .info .d{font-size:12.5px;color:var(--muted);margin-top:2px}
 .home-item .chev{color:var(--muted)}
+.week-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:18px 2px 4px;font-weight:700;font-size:15px}
+.week-head .wk-meta{font-size:12.5px;color:var(--muted);font-weight:600}
+.week-head.deload{color:var(--amber)}
+.home-item.deload{border-left:4px solid var(--amber)}
+.home-item .info .tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--amber-bg);color:var(--amber);margin-left:6px;vertical-align:1px}
+.deload-banner{background:var(--amber-bg);border:1px solid var(--amber);color:var(--ink);border-radius:var(--radius);padding:11px 14px;margin:10px 0;font-size:14px;line-height:1.45}
+.deload-banner b{color:var(--amber)}
+.skip-warn{font-size:13px;color:var(--danger);background:var(--danger-bg);border-radius:8px;padding:8px 10px;margin-top:8px;line-height:1.4}
 </style>
 </head>
 <body>
@@ -382,6 +391,14 @@ function activeSession(){ return state.sessions.find(s=>s.id===state.activeId) |
 function imgUrlFor(name){ const p=IMG_MAP[name]; return p ? IMG_BASE+p : null; }
 function currentName(ex){ return (ex.usedAlt && ex.alt && ex.alt.name) ? ex.alt.name : ex.name; }
 function sessionIsDone(s){ return s.exercises.some(e=>e.rir!==""); }
+/* v12 — décharge : déclarée par le libellé de séance (prompt § 10). Rétrocompatible
+   avec les séances déjà stockées (sans champ deload) : on relit le titre. */
+const DELOAD_RE=/D[ÉE]CHARGE/i;
+function isDeload(s){ return !!(s && (s.deload || DELOAD_RE.test(s.title||""))); }
+function weekOf(s){ const w=Number(s && s.week); return (w>=1 && isFinite(w)) ? w : null; }
+/* v12 — exercice probablement NON fait : aucun RIR saisi mais des séries > 0 (pré-remplies
+   depuis le plan). Exporté tel quel, il gonflerait le volume et fausserait le décompte. */
+function likelySkipped(ex){ return ex.rir==="" && String(ex.serie).trim()!=="" && Number(ex.serie)>0; }
 
 /* v9 — l'alternative est une AUTRE machine : reps, RIR et charge lui sont propres.
    plannedView() renvoie la prescription active (principal, ou alt si usedAlt),
@@ -521,6 +538,9 @@ id:uid(),
 title:(obj.session||obj.title||"Séance").toString().trim(),
 date:(obj.date||today()).toString().trim(),
 type:(obj.type||"salle").toString().trim(),
+week:(Number(obj.week)>=1 ? Number(obj.week) : null),
+deload:DELOAD_RE.test(String(obj.session||obj.title||"")),
+forme:"",
 exercises:obj.exercises.map(normalizeExercise)
 };
 }
@@ -534,9 +554,15 @@ return [buildSession(obj)];
 }
 
 /* ---------- RIR logic ---------- */
-function rirZone(v, cuff){
+function rirZone(v, cuff, deload){
 if(v===""||v===null) return {cls:"", hint:"", z:"plain"};
 v=Number(v);
+/* v12 — en décharge la cible est RIR 4–5 : ne jamais pousser à « monter la charge ». */
+if(deload && !cuff){
+if(v>=4 && v<=5) return {cls:"good", hint:"décharge : dans la cible (4–5), charge conservée", z:"z-good"};
+if(v<4) return {cls:"amber", hint:"décharge : trop proche de l'échec — allège ou coupe la série", z:"z-amber"};
+return {cls:"good", hint:"décharge : ok (pas de hausse de charge cette semaine)", z:"z-good"};
+}
 if(cuff){
 if(v>=3 && v<=4) return {cls:"good", hint:"coiffe : dans la cible (3–4, jamais à l'échec)", z:"z-good"};
 if(v<3) return {cls:"amber", hint:"coiffe : trop proche de l'échec — allège", z:"z-amber"};
@@ -576,6 +602,11 @@ return;
 }
 const s = activeSession();
 if(!s){ state.view="home"; applyViewChrome(); renderHome(); updateProgress(); return; }
+if(isDeload(s)){
+const b=document.createElement("div"); b.className="deload-banner";
+b.innerHTML='<b>Semaine de DÉCHARGE.</b> Volume réduit, charge conservée, RIR cible 4–5. Ne monte pas la charge cette semaine. La coiffe reste normale.';
+app.appendChild(b);
+}
 s.exercises.forEach((ex,i)=> app.appendChild(buildCard(ex,i)) );
 updateProgress();
 }
@@ -600,7 +631,13 @@ bar.innerHTML = `
 <select id="mType">
 ${["salle","maison","poids du corps"].map(t=>`<option ${t===s.type?"selected":""}>${t}</option>`).join("")}
 </select>
+</label>
+<label>Forme du jour
+<select id="mForme" title="1 = épuisé · 5 = en pleine forme. Exportée dans Observations.">
+${["","1","2","3","4","5"].map(f=>`<option value="${f}" ${f===String(s.forme||"")?"selected":""}>${f?f+"/5":"—"}</option>`).join("")}
+</select>
 </label>`;
+document.getElementById("mForme").addEventListener("change",e=>{ s.forme=e.target.value; scheduleSave(); });
 document.getElementById("mDate").addEventListener("change",e=>{ s.date=e.target.value; scheduleSave(); renderSessionSelect(); });
 document.getElementById("mType").addEventListener("change",e=>{ s.type=e.target.value; scheduleSave(); });
 }
@@ -629,19 +666,38 @@ head.innerHTML = `<h2>Mes séances</h2>` + (total
 app.appendChild(head);
 
 if(total){
+/* v12 — regroupement par semaine du cycle (champ week du JSON, prompt Output 3 f). */
+const groups=new Map();
+state.sessions.forEach(s=>{ const k=weekOf(s); if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(s); });
+const keys=[...groups.keys()].sort((a,b)=> a===null?1 : b===null?-1 : a-b);
+const showHeads = keys.length>1 || keys[0]!==null;
+keys.forEach(k=>{
+const ss=groups.get(k);
+if(showHeads){
+const dl=ss.some(isDeload);
+const h=document.createElement("div"); h.className="week-head"+(dl?" deload":"");
+const lab=document.createElement("span");
+lab.textContent = k===null ? "Sans semaine" : ("Semaine "+k+(dl?" — DÉCHARGE":""));
+const meta=document.createElement("span"); meta.className="wk-meta";
+meta.textContent = ss.filter(sessionIsDone).length+"/"+ss.length+" faites";
+h.appendChild(lab); h.appendChild(meta); app.appendChild(h);
+}
 const list=document.createElement("div"); list.className="home-list";
-state.sessions.forEach(s=>{
+ss.forEach(s=>{
 const done=sessionIsDone(s);
-const row=document.createElement("div"); row.className="home-item";
+const dl=isDeload(s);
+const row=document.createElement("div"); row.className="home-item"+(dl?" deload":"");
 row.innerHTML = `<span class="mark ${done?"on":"off"}" title="${done?"Séance effectuée":"Séance non commencée"}">${done?"✓":"·"}</span>
 <span class="info"><span class="t"></span><span class="d"></span></span>
 <span class="chev">›</span>`;
 row.querySelector(".t").textContent = s.title || "(sans titre)";
+if(dl && !DELOAD_RE.test(s.title||"")) row.querySelector(".t").insertAdjacentHTML("beforeend",'<span class="tag">DÉCHARGE</span>');
 row.querySelector(".d").textContent = `${s.date} · ${s.type}`;
 row.addEventListener("click", ()=>{ state.activeId=s.id; state.view="session"; scheduleSave(); render(); });
 list.appendChild(row);
 });
 app.appendChild(list);
+});
 }
 
 const actions=document.createElement("div"); actions.className="panel";
@@ -803,7 +859,7 @@ const rirHint=document.createElement("div"); rirHint.className="hint"; hero.appe
 function paintRir(){
 rirChips.innerHTML="";
 for(let v=0; v<=10; v++){
-const z=rirZone(v, ex.cuff);
+const z=rirZone(v, ex.cuff, isDeload(activeSession()));
 const c=document.createElement("button");
 c.className="chip"+(String(v)===String(ex.rir)?(" on "+z.z):"");
 c.textContent=v;
@@ -812,7 +868,7 @@ rirChips.appendChild(c);
 }
 if(ex.rir===""){ rirHint.textContent=""; rirHint.className="hint"; }
 else{
-const z=rirZone(Number(ex.rir), ex.cuff);
+const z=rirZone(Number(ex.rir), ex.cuff, isDeload(activeSession()));
 rirHint.textContent=z.hint; rirHint.className="hint "+z.cls;
 if(ex.warn && Number(ex.rir)<2){ rirHint.textContent="zone sensible : vise RIR ≥ 2 · "+z.hint; rirHint.className="hint danger"; }
 }
@@ -955,11 +1011,17 @@ lab.textContent=`${done}/${tot} exercices encodés (RIR renseigné)`;
 /* ---------- export vers Training (ordre = plan.xlsx) ---------- */
 function buildExportTSV(sessionArg){
 const s = sessionArg || activeSession(); if(!s) return "";
-const rows=s.exercises.map(ex=>{
+const rows=s.exercises.map((ex,i)=>{
 const exName = (ex.usedAlt && ex.alt && ex.alt.name) ? ex.alt.name : ex.name;
+/* v12 — la décharge et la forme du jour voyagent dans Observations, seule colonne
+   texte de Training : le prompt (§ 10, critère 1) lit la mention DÉCHARGE ici. */
+const tags=[];
+if(isDeload(s) && !DELOAD_RE.test(ex.obs||"")) tags.push("DÉCHARGE");
+if(i===0 && s.forme) tags.push("Forme "+s.forme+"/5");
+const obs=[tags.join(" · "), ex.obs||""].filter(Boolean).join(" · ");
 return [
 s.date, exName, ex.serie, ex.reps, ex.charge, ex.paired, ex.rest,
-ex.rir, ex.rpe, ex.pain, ex.painLoc, ex.obs, s.type
+ex.rir, ex.rpe, ex.pain, ex.painLoc, obs, s.type
 ].map(cellClean).join("\t");
 });
 return rows.join("\n");
@@ -1033,7 +1095,7 @@ function loadExample(){
 const ex = {
 "sessions":[{
 "session":"Exemple — Full body A (à remplacer)",
-"date":today(),"type":"salle",
+"week":1,"date":today(),"type":"salle",
 "exercises":[
 {"name":"Barbell Back Squat","sets":3,"reps":"5-8","charge":"60","paired":1,"rest":150,"setup":"Cage à squat, barre olympique 20 kg","divers":"Descente contrôlée, gainage","rirTarget":"2-3","execution":["Barre sur le haut des trapèzes, mains un peu plus larges que les épaules.","Pieds largeur d'épaules, pointes légèrement ouvertes ; gaine avant de descendre.","Pousse les hanches en arrière et fléchis les genoux dans l'axe des pieds.","Descends jusqu'à cuisses parallèles au sol (ou plus bas sans arrondir le bas du dos).","Remonte en poussant dans les talons, sans verrouiller brutalement les genoux."],"alt":{"name":"Leg Press","setup":"Machine leg press, pieds mi-hauteur","reps":"8-10","rirTarget":"2-3","chargeEstimate":"100","chargeSource":"estimée","note":"si le rack est pris — caler au RIR cible dès la 1ère série, loguer sa propre ligne"}},
 {"name":"Flat Barbell Bench Press","sets":3,"reps":"5-8","charge":"50","paired":1,"rest":150,"setup":"Banc plat, pareur conseillé","divers":"Omoplates serrées","rirTarget":"2-3","alt":{"name":"Machine Chest Press","setup":"Siège réglé, poignées à mi-poitrine","reps":"6-8","rirTarget":"2-3","chargeEstimate":"35","chargeSource":"estimée","note":"si le banc est pris"}},
@@ -1053,6 +1115,7 @@ function openExport(){
 if(!activeSession()){ return; }
 document.getElementById("exportText").value=buildExportTSV();
 setMsg("exportMsg","Ordre des colonnes : "+TRAINING_COLS.join(" · "));
+showSkipWarn([activeSession()]);
 document.getElementById("exportModal").classList.add("open");
 }
 function openExportAll(){
@@ -1064,7 +1127,21 @@ setMsg("exportMsg","Aucune séance effectuée pour l'instant (aucun exercice ave
 const nbLignes = done.reduce((n,s)=>n+s.exercises.length,0);
 setMsg("exportMsg", `Ordre des colonnes : ${TRAINING_COLS.join(" · ")} — ${done.length} séance(s) effectuée(s) sur ${state.sessions.length} (${nbLignes} lignes).`);
 }
+showSkipWarn(done);
 document.getElementById("exportModal").classList.add("open");
+}
+/* v12 — avertit si des exercices sans RIR sont exportés avec des séries > 0. */
+function showSkipWarn(sessions){
+const host=document.getElementById("exportMsg");
+const old=document.getElementById("skipWarn"); if(old) old.remove();
+const list=[];
+sessions.filter(Boolean).forEach(s=>s.exercises.forEach(ex=>{ if(likelySkipped(ex)) list.push(s.date+" · "+currentName(ex)); }));
+if(!list.length) return;
+const d=document.createElement("div"); d.id="skipWarn"; d.className="skip-warn";
+d.innerHTML="<b>⚠ "+list.length+" exercice(s) sans RIR, exporté(s) avec les séries prévues :</b> "
++list.map(escapeHtml).join(" ; ")
++". S'ils n'ont pas été faits, mets « Séries réellement faites » à 0 avant de copier — sinon le volume de la semaine est faussé (décompte de décharge).";
+host.insertAdjacentElement("afterend", d);
 }
 async function copyExport(){
 const t=document.getElementById("exportText").value;
@@ -1081,7 +1158,7 @@ function closeMenu(){ document.getElementById("menuModal").classList.remove("ope
 function dupSession(){
 const s=activeSession(); if(!s)return;
 const copy=JSON.parse(JSON.stringify(s));
-copy.id=uid(); copy.date=today();
+copy.id=uid(); copy.date=today(); copy.forme="";
 copy.exercises.forEach(e=>{ e.rir="";e.rpe="";e.pain="";e.painLoc="";e.obs=""; e.usedAlt=false;
 e.serie=e.plannedSets; e.reps=e.plannedReps; e.charge=e.plannedCharge; e.paired=e.plannedPaired; });
 copy.title=s.title.replace(/\s·\s\d{4}-\d{2}-\d{2}$/,"");
