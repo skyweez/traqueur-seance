@@ -164,6 +164,7 @@ textarea.paste{width:100%;min-height:120px;border:1px solid var(--line-strong);b
 .home-item .info .tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--amber-bg);color:var(--amber);margin-left:6px;vertical-align:1px}
 .deload-banner{background:var(--amber-bg);border:1px solid var(--amber);color:var(--ink);border-radius:var(--radius);padding:11px 14px;margin:10px 0;font-size:14px;line-height:1.45}
 .deload-banner b{color:var(--amber)}
+.skip-info{font-size:13px;color:var(--ink);background:var(--amber-bg);border-radius:8px;padding:8px 10px;margin-top:8px;line-height:1.4}
 .skip-warn{font-size:13px;color:var(--danger);background:var(--danger-bg);border-radius:8px;padding:8px 10px;margin-top:8px;line-height:1.4}
 </style>
 </head>
@@ -222,6 +223,25 @@ textarea.paste{width:100%;min-height:120px;border:1px solid var(--line-strong);b
 <div class="actions">
 <button class="btn primary" id="btnCopy">Copier</button>
 <button class="btn ghost" id="btnCloseExport">Fermer</button>
+</div>
+</div>
+</div>
+
+<!-- Semaine off modal (v16, B3) -->
+<div class="modal" id="offModal">
+<div class="sheet">
+<h3>Semaine off (maladie, blessure, absence)</h3>
+<p>Génère <b>une seule ligne</b> pour Training : le prompt s'en sert pour ne pas compter ces semaines comme des semaines de progression. Aucune séance n'est créée.</p>
+<label>Type
+<select id="offKind"><option value="MALADIE">Maladie</option><option value="BLESSURE">Blessure</option><option value="ABSENCE">Absence (vacances, déplacement)</option></select>
+</label>
+<label>Du <input type="date" id="offFrom"></label>
+<label>Au <input type="date" id="offTo"></label>
+<label>Remarque (facultatif) <input type="text" id="offNote" placeholder="ex. grippe"></label>
+<div class="msg" id="offMsg"></div>
+<div class="actions">
+<button class="btn primary" id="btnOffGen">Générer la ligne</button>
+<button class="btn ghost" id="btnOffClose">Fermer</button>
 </div>
 </div>
 </div>
@@ -391,6 +411,19 @@ function activeSession(){ return state.sessions.find(s=>s.id===state.activeId) |
 function imgUrlFor(name){ const p=IMG_MAP[name]; return p ? IMG_BASE+p : null; }
 function currentName(ex){ return (ex.usedAlt && ex.alt && ex.alt.name) ? ex.alt.name : ex.name; }
 function sessionIsDone(s){ return s.exercises.some(e=>e.rir!==""); }
+/* v16 (B2) — Type canonique avec majuscule dans Training : Salle · Maison · Poids du corps.
+   Lecture insensible à la casse (séances déjà stockées en minuscules, JSON du plan). */
+const TYPE_LABELS=["Salle","Maison","Poids du corps"];
+function typeLabel(x){ const v=String(x||"").trim().toLowerCase(); return TYPE_LABELS.find(l=>l.toLowerCase()===v) || (String(x||"").trim()||"Salle"); }
+/* v16 (B1) — exercice exporté seulement s'il a été fait : séries > 0 ET au moins un champ saisi
+   (RIR, RPE, douleur, observation) ; un exercice à 0 série n'est gardé que s'il porte une douleur
+   ou une observation (information lue par le prompt). Sinon : non fait, non exporté. */
+function hasEntry(ex){ return ex.rir!=="" || ex.rpe!=="" || ex.pain!=="" || String(ex.obs||"").trim()!==""; }
+function isExportable(ex){
+const n=Number(ex.serie);
+if(n>0) return hasEntry(ex);
+return ex.pain!=="" || String(ex.obs||"").trim()!=="";
+}
 /* v12 — décharge : déclarée par le libellé de séance (prompt § 10). Rétrocompatible
    avec les séances déjà stockées (sans champ deload) : on relit le titre. */
 const DELOAD_RE=/D[ÉE]CHARGE/i;
@@ -537,7 +570,7 @@ return {
 id:uid(),
 title:(obj.session||obj.title||"Séance").toString().trim(),
 date:(obj.date||today()).toString().trim(),
-type:(obj.type||"salle").toString().trim(),
+type:typeLabel(obj.type||"Salle"),
 week:(Number(obj.week)>=1 ? Number(obj.week) : null),
 deload:DELOAD_RE.test(String(obj.session||obj.title||"")),
 forme:"",
@@ -629,7 +662,7 @@ bar.innerHTML = `
 </label>
 <label>Type
 <select id="mType">
-${["salle","maison","poids du corps"].map(t=>`<option ${t===s.type?"selected":""}>${t}</option>`).join("")}
+${TYPE_LABELS.map(t=>`<option ${t===typeLabel(s.type)?"selected":""}>${t}</option>`).join("")}
 </select>
 </label>
 <label>Forme du jour
@@ -692,7 +725,7 @@ row.innerHTML = `<span class="mark ${done?"on":"off"}" title="${done?"Séance ef
 <span class="chev">›</span>`;
 row.querySelector(".t").textContent = s.title || "(sans titre)";
 if(dl && !DELOAD_RE.test(s.title||"")) row.querySelector(".t").insertAdjacentHTML("beforeend",'<span class="tag">DÉCHARGE</span>');
-row.querySelector(".d").textContent = `${s.date} · ${s.type}`;
+row.querySelector(".d").textContent = `${s.date} · ${typeLabel(s.type)}`;
 row.addEventListener("click", ()=>{ state.activeId=s.id; state.view="session"; scheduleSave(); render(); });
 list.appendChild(row);
 });
@@ -705,11 +738,13 @@ actions.innerHTML = `<div class="row">
 <button class="btn primary" id="homeImport">Importer des séances</button>
 <button class="btn ghost" id="homeExample">Charger un exemple</button>
 <button class="btn ghost" id="homeExportAll">Exporter les séances effectuées</button>
+<button class="btn ghost" id="homeOff">Semaine off (maladie, absence…)</button>
 </div>`;
 app.appendChild(actions);
 document.getElementById("homeImport").onclick=openImport;
 document.getElementById("homeExample").onclick=loadExample;
 document.getElementById("homeExportAll").onclick=openExportAll;
+document.getElementById("homeOff").onclick=openOff;
 }
 
 /* ---------- image d'un exercice ---------- */
@@ -1009,9 +1044,10 @@ lab.textContent=`${done}/${tot} exercices encodés (RIR renseigné)`;
 }
 
 /* ---------- export vers Training (ordre = plan.xlsx) ---------- */
+function exportableOf(s){ return s.exercises.filter(isExportable); }
 function buildExportTSV(sessionArg){
 const s = sessionArg || activeSession(); if(!s) return "";
-const rows=s.exercises.map((ex,i)=>{
+const rows=exportableOf(s).map((ex,i)=>{
 const exName = (ex.usedAlt && ex.alt && ex.alt.name) ? ex.alt.name : ex.name;
 /* v12 — la décharge et la forme du jour voyagent dans Observations, seule colonne
    texte de Training : le prompt (§ 10, critère 1) lit la mention DÉCHARGE ici. */
@@ -1021,7 +1057,7 @@ if(i===0 && s.forme) tags.push("Forme "+s.forme+"/5");
 const obs=[tags.join(" · "), ex.obs||""].filter(Boolean).join(" · ");
 return [
 s.date, exName, ex.serie, ex.reps, ex.charge, ex.paired, ex.rest,
-ex.rir, ex.rpe, ex.pain, ex.painLoc, obs, s.type
+ex.rir, ex.rpe, ex.pain, ex.painLoc, obs, typeLabel(s.type)
 ].map(cellClean).join("\t");
 });
 return rows.join("\n");
@@ -1124,24 +1160,45 @@ document.getElementById("exportText").value = buildExportAllTSV();
 if(done.length===0){
 setMsg("exportMsg","Aucune séance effectuée pour l'instant (aucun exercice avec un RIR renseigné).","err");
 }else{
-const nbLignes = done.reduce((n,s)=>n+s.exercises.length,0);
+const nbLignes = done.reduce((n,s)=>n+exportableOf(s).length,0);
 setMsg("exportMsg", `Ordre des colonnes : ${TRAINING_COLS.join(" · ")} — ${done.length} séance(s) effectuée(s) sur ${state.sessions.length} (${nbLignes} lignes).`);
 }
 showSkipWarn(done);
 document.getElementById("exportModal").classList.add("open");
 }
-/* v12 — avertit si des exercices sans RIR sont exportés avec des séries > 0. */
+/* v16 (B1) — liste les exercices NON exportés (non faits) ; plus d'export des séries prévues. */
 function showSkipWarn(sessions){
 const host=document.getElementById("exportMsg");
 const old=document.getElementById("skipWarn"); if(old) old.remove();
 const list=[];
-sessions.filter(Boolean).forEach(s=>s.exercises.forEach(ex=>{ if(likelySkipped(ex)) list.push(s.date+" · "+currentName(ex)); }));
+sessions.filter(Boolean).forEach(s=>s.exercises.forEach(ex=>{ if(!isExportable(ex)) list.push(s.date+" · "+currentName(ex)); }));
 if(!list.length) return;
-const d=document.createElement("div"); d.id="skipWarn"; d.className="skip-warn";
-d.innerHTML="<b>⚠ "+list.length+" exercice(s) sans RIR, exporté(s) avec les séries prévues :</b> "
+const d=document.createElement("div"); d.id="skipWarn"; d.className="skip-info";
+d.innerHTML="<b>"+list.length+" exercice(s) non fait(s), non exporté(s) :</b> "
 +list.map(escapeHtml).join(" ; ")
-+". S'ils n'ont pas été faits, mets « Séries réellement faites » à 0 avant de copier — sinon le volume de la semaine est faussé (décompte de décharge).";
++". Fait pourtant ? Saisis au moins un RIR (ou RPE / douleur / remarque), puis rouvre l'export.";
 host.insertAdjacentElement("afterend", d);
+}
+/* v16 (B3) — ligne « semaine off » : Exercice « (Semaine off) », Série 0, mot-clé + plage dans Observations. */
+function openOff(){
+const d=today(); document.getElementById("offFrom").value=d; document.getElementById("offTo").value=d;
+document.getElementById("offNote").value=""; setMsg("offMsg","");
+document.getElementById("offModal").classList.add("open");
+}
+function closeOff(){ document.getElementById("offModal").classList.remove("open"); }
+function buildOffTSV(kind,from,to,note){
+const obs=kind+" "+from+"→"+to+(note?" "+note:"");
+return [from,"(Semaine off)",0,"","","","","","","","",obs,"Salle"].map(cellClean).join("\t");
+}
+function genOff(){
+const kind=document.getElementById("offKind").value, from=document.getElementById("offFrom").value,
+to=document.getElementById("offTo").value, note=document.getElementById("offNote").value.trim();
+if(!from||!to){ setMsg("offMsg","Renseigne les deux dates.","err"); return; }
+if(to<from){ setMsg("offMsg","La date de fin précède la date de début.","err"); return; }
+document.getElementById("exportText").value=buildOffTSV(kind,from,to,note);
+setMsg("exportMsg","Une ligne « semaine off » : colle-la sous la dernière ligne de Training.");
+const w=document.getElementById("skipWarn"); if(w) w.remove();
+closeOff(); document.getElementById("exportModal").classList.add("open");
 }
 async function copyExport(){
 const t=document.getElementById("exportText").value;
@@ -1195,6 +1252,8 @@ e.target.value="";
 document.getElementById("btnExport").onclick=openExport;
 document.getElementById("btnCloseExport").onclick=()=>document.getElementById("exportModal").classList.remove("open");
 document.getElementById("btnCopy").onclick=copyExport;
+document.getElementById("btnOffGen").onclick=genOff;
+document.getElementById("btnOffClose").onclick=closeOff;
 document.getElementById("btnMenu").onclick=openMenu;
 document.getElementById("btnCloseMenu").onclick=closeMenu;
 document.getElementById("btnDup").onclick=dupSession;
@@ -1205,7 +1264,7 @@ document.getElementById("btnRestore").onclick=()=>document.getElementById("resto
 document.getElementById("restoreInput").addEventListener("change",e=>{ if(e.target.files[0]) restoreFile(e.target.files[0]); e.target.value=""; });
 document.getElementById("btnInstall").onclick=()=>{ closeMenu(); document.getElementById("installModal").classList.add("open"); };
 document.getElementById("btnCloseInstall").onclick=()=>document.getElementById("installModal").classList.remove("open");
-[["importModal",closeImport],["exportModal",()=>document.getElementById("exportModal").classList.remove("open")],["menuModal",closeMenu],["installModal",()=>document.getElementById("installModal").classList.remove("open")]]
+[["offModal",closeOff],["importModal",closeImport],["exportModal",()=>document.getElementById("exportModal").classList.remove("open")],["menuModal",closeMenu],["installModal",()=>document.getElementById("installModal").classList.remove("open")]]
 .forEach(([id,fn])=>{ document.getElementById(id).addEventListener("click",e=>{ if(e.target.id===id) fn(); }); });
 
 /* init */
