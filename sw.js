@@ -1,5 +1,5 @@
 /* Service worker — Traqueur de séance (PWA hors-ligne) */
-const VERSION = "traqueur-v5-2026-11-08";
+const VERSION = "traqueur-v5b-2026-11-08-muscles";
 const SHELL_CACHE = "shell-" + VERSION;
 const IMG_CACHE = "img-" + VERSION;
 const IMG_HOST = "raw.githubusercontent.com";
